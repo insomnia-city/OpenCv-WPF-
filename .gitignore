@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+*.user
+
+# VS / IDE
+.vs/
+.vscode/
+.idea/
+
+# NuGet
+*.nupkg
+
+# Local runtime data
+/plugins/
+/projects/
+*.vx.log
