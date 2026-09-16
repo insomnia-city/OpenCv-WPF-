@@ -15,3 +15,7 @@ obj/
 /plugins/
 /projects/
 *.vx.log
+# Test artifacts
+TestResults/
+*.dmp
+Sequence_*.xml
