@@ -65,7 +65,24 @@ public sealed class UndoService : IUndoService
 
     /// <summary>Clears all stacks (switch project / load new graph). · 清空全部栈(切换工程/载入新图)</summary>
     public void Clear() { lock (_gate) { _undo.Clear(); _redo.Clear(); } }
+
+    /// <summary>
+    /// Top of the undo stack without consuming it (drives shell rebind decisions). · 撤销栈顶(不消费,驱动壳层重建判断)
+    /// </summary>
+    public IUndoableCommand? PeekUndo() { lock (_gate) return _undo.Last?.Value; }
+
+    /// <summary>
+    /// Top of the redo stack without consuming it. · 重做栈顶(不消费)
+    /// </summary>
+    public IUndoableCommand? PeekRedo() { lock (_gate) return _redo.Last?.Value; }
 }
+
+/// <summary>
+/// Marker for commands that mutate graph structure (nodes/links), so the shell can
+/// decide whether an undo needs to rebuild the canvas projections (§9.2).
+/// / 图结构变更命令标记(节点/连线),供壳层决定撤销时是否需要重建画布投影（§9.2）。
+/// </summary>
+public interface IGraphEditCommand { }
 
 /// <summary>
 /// Composite command: executes a list of commands sequentially. One undo reverts all in reverse order. 
@@ -114,7 +131,7 @@ public static class GraphCommands
     public static IUndoableCommand Disconnect(GraphModel graph, GraphLink link)
         => new DisconnectImpl(graph, link);
 
-    private sealed class AddNodeImpl(GraphModel g, INode node, double x, double y) : IUndoableCommand
+    private sealed class AddNodeImpl(GraphModel g, INode node, double x, double y) : IUndoableCommand, IGraphEditCommand
     {
         public string Description => $"Add node '{node.Id}'";
         public Task DoAsync(CancellationToken ct)
@@ -127,7 +144,7 @@ public static class GraphCommands
         public Task RedoAsync(CancellationToken ct) => DoAsync(ct);
     }
 
-private sealed class RemoveNodeImpl(GraphModel g, string nodeId) : IUndoableCommand
+private sealed class RemoveNodeImpl(GraphModel g, string nodeId) : IUndoableCommand, IGraphEditCommand
 {
     private readonly List<(IPort from, IPort to)> _linkSnapshot = new();
     private INode? _node;
@@ -162,7 +179,7 @@ private sealed class RemoveNodeImpl(GraphModel g, string nodeId) : IUndoableComm
     public Task RedoAsync(CancellationToken ct) => DoAsync(ct);
 }
 
-    private sealed class ConnectImpl(GraphModel g, IPort from, IPort to) : IUndoableCommand
+    private sealed class ConnectImpl(GraphModel g, IPort from, IPort to) : IUndoableCommand, IGraphEditCommand
     {
         private GraphLink? _created;
         public string Description => $"Connect {from.Owner.Id}:{from.Name} → {to.Owner.Id}:{to.Name}";
@@ -180,7 +197,7 @@ private sealed class RemoveNodeImpl(GraphModel g, string nodeId) : IUndoableComm
         public Task RedoAsync(CancellationToken ct) => DoAsync(ct);
     }
 
-    private sealed class DisconnectImpl(GraphModel g, GraphLink link) : IUndoableCommand
+    private sealed class DisconnectImpl(GraphModel g, GraphLink link) : IUndoableCommand, IGraphEditCommand
     {
         public string Description => $"Disconnect link";
         public Task DoAsync(CancellationToken ct) { g.Disconnect(link); return Task.CompletedTask; }

@@ -29,6 +29,7 @@ public sealed partial class NodeViewModel : ObservableObject
     private readonly GraphNode _kernel;
     private Point _location;
     private NodeState _state;
+    private bool _isSelected;
 
     public NodeViewModel(GraphNode kernel, Action? deleteRequested = null)
     {
@@ -82,6 +83,13 @@ public sealed partial class NodeViewModel : ObservableObject
     {
         get => _state;
         set => SetProperty(ref _state, value);
+    }
+
+    /// <summary>Selection flag driven by the shell (property panel target). · 选中标记(由壳层驱动,属性面板目标)</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set => SetProperty(ref _isSelected, value);
     }
 
     /// <summary>Deletes this node from the editor (wired by the shell). · 从编辑器删除本节点(壳层接线)</summary>

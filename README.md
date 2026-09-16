@@ -95,6 +95,17 @@
 - 全解决方案：**71 项单测全绿**（36 Core + 11 Runtime + 6 App + 17 Nodes.Flow + 1 App 撤销验收 = 36+11+6+17+1）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
 
-> 下一步（阶段 5）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、属性面板、数据面板、运行期实时数据（scope 值/图像预览）。
+**阶段 5（视觉节点库 Nodes.Vision + 反射属性面板）已落地**：
+- `src/Nodes.Vision/` — Halcon 节点库（插件，§6.1~6.4）：算子直调 + HDev 通用脚本 + **HObject↔Mat 桥**，全部走 `IVisionEnginePool`（借出/归还/并发上限/取消，闸门 1）
+  - `Imaging/VisionFrame.cs` — 不可变帧 DTO（Gray8/Bgr8/Bgra8 + Halcon/Mat 域 + 缓冲长度校验）；`FrameBridge` — 零拷贝域翻转，HObject↔Mat 往返字节一致（闸门 2）
+  - `Engines/` — `IVisionEngine` / `VisionEnginePool`（SemaphoreSlim 门闸+空闲队列）/ `PhantomVisionEngine`（纯 .NET 确定性软回退：grab/threshold/measure/hdev）/ `VisionEngineFactory.CreateResolved`（部署机 MVTec 探测，未接真实适配器前自动软回退）
+  - `Nodes/` — 6 个节点：`vision.grab` / `vision.threshold`（**v2**，v1 保留给旧脚手架，§12 版本迁移链）/ `vision.measure` / `vision.hdev` / `vision.tomat` / `vision.tohobject`；`VisionNodeBase` 节点级借池租约
+  - `Components/` — `NodeParameterAttribute` + `ParameterReflection`（§4.4 反射面板元数据：分组/范围/种类/单元，类型化写入+范围校验返回旧值）
+  - `Commands/SetParameterCommand` — §9.2 可撤销参数写（Do/Undo/Redo 精确往返）；`IGraphEditCommand` 标记区隔结构/参数撤销
+- `src/Nodes.Vision.Tests/` — 28 项：**池闸门**（复用/并发上限/取消不泄漏/等待中取消/工厂失败还槽）、**桥闸门**（3 像素格式往返字节一致）、视觉链路冒烟（grab→threshold→mask、grab→measure、hdev、tomat/tohobject 往返）、参数反射、撤销命令
+- App 接线：调色板 grabber/threshold 换成真实 vision 节点并新增 measure/hdev/tomat/tohobject（中/英/韩本地化 + 契约族配色）；`CombinedNodeFactory` 混入 `VisionNodeFactory`（threshold 按版本分流）；调度器注册 `IVisionEnginePool`；右栏新增**属性面板**（选中节点 → `NodeParameter` 反射行，失焦提交经撤销服务，Undo/Redo 按命令分类重建/刷新）
+- 全解决方案：**101 项单测全绿**（36 Core + 11 Runtime + 9 App + 17 Nodes.Flow + 28 Nodes.Vision）
+
+> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、数据面板、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

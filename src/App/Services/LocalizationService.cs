@@ -50,8 +50,14 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["palette.script"] = "Script",
         ["palette.counter"] = "Counter",
         ["palette.delay"] = "Delay",
+        ["palette.measure"] = "Measure",
+        ["palette.hdev"] = "HDev Script",
+        ["palette.tomat"] = "To Mat",
+        ["palette.tohobject"] = "To HObject",
         ["node.input"] = "Inputs",
         ["node.output"] = "Outputs",
+        ["property.title"] = "Properties",
+        ["property.empty"] = "Select a node to edit its parameters",
         ["status.ready"] = "Ready",
         ["status.noGraph"] = "No graph loaded"
     };
@@ -80,8 +86,14 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["palette.script"] = "脚本",
         ["palette.counter"] = "计数器",
         ["palette.delay"] = "延时",
+        ["palette.measure"] = "测量",
+        ["palette.hdev"] = "HDev 脚本",
+        ["palette.tomat"] = "转 Mat",
+        ["palette.tohobject"] = "转 HObject",
         ["node.input"] = "输入",
         ["node.output"] = "输出",
+        ["property.title"] = "属性",
+        ["property.empty"] = "选择节点以编辑其参数",
         ["status.ready"] = "就绪",
         ["status.noGraph"] = "未载入图"
     };
@@ -110,8 +122,14 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["palette.script"] = "스크립트",
         ["palette.counter"] = "카운터",
         ["palette.delay"] = "지연",
+        ["palette.measure"] = "측정",
+        ["palette.hdev"] = "HDev 스크립트",
+        ["palette.tomat"] = "Mat 변환",
+        ["palette.tohobject"] = "HObject 변환",
         ["node.input"] = "입력",
         ["node.output"] = "출력",
+        ["property.title"] = "속성",
+        ["property.empty"] = "노드를 선택하여 매개변수를 편집하세요",
         ["status.ready"] = "준비됨",
         ["status.noGraph"] = "그래프가 없습니다"
     };

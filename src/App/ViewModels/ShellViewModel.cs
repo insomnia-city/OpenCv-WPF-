@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HalconWorkflow.Abstractions;
 using HalconWorkflow.Abstractions.Undo;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.Core.Contracts;
@@ -10,6 +11,10 @@ using HalconWorkflow.Core.Execution;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
 using HalconWorkflow.Nodes.Flow;
+using HalconWorkflow.Nodes.Vision;
+using HalconWorkflow.Nodes.Vision.Commands;
+using HalconWorkflow.Nodes.Vision.Engines;
+using HalconWorkflow.Nodes.Vision.Nodes;
 using HalconWorkflow.Runtime.Nodes;
 
 namespace HalconWorkflow.App.ViewModels;
@@ -27,11 +32,14 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly SynchronizationContext? _ui;
     private readonly GraphScheduler _scheduler = new();
     private readonly UndoService _undo = new();
+    private readonly VisionEnginePool _visionPool = new(
+        () => VisionEngineFactory.CreateResolved(forcePhantom: true), capacity: 2);
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
     private int _seq;
     private int _paletteOffset;
+    private NodeViewModel? _selectedNode;
 
     /// <summary>Localization facade. · 本地化门面</summary>
     public LocalizationService Loc => _loc;
@@ -41,6 +49,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     /// <summary>Session log. · 会话日志</summary>
     public LogViewModel Log { get; }
+
+    /// <summary>Property panel for the selected node (§4.4). · 选中节点的属性面板(§4.4)</summary>
+    public PropertyPanelViewModel PropertyPanel { get; }
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -78,6 +89,7 @@ public sealed partial class ShellViewModel : ObservableObject
     public string LogTitle => _loc["log.title"];
     public string PaletteTitle => _loc["palette.title"];
     public string StatusReady => _loc["status.ready"];
+    public string PropertiesTitle => _loc["property.title"];
 
     /// <summary>Whether the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
@@ -95,21 +107,26 @@ public sealed partial class ShellViewModel : ObservableObject
         _ui = SynchronizationContext.Current;
         Editor = new MainEditorViewModel();
         Log = new LogViewModel();
+        PropertyPanel = new PropertyPanelViewModel(loc);
+        PropertyPanel.ParameterCommitted += (name, value) =>
+            _ = ApplyParameterAsync(_selectedNode, name, value);
         Editor.RemoveAsyncHandler = RemoveNodeAsync;
         _loc.PropertyChanged += (_, _) => OnPropertyChanged((string?)null);
         Editor.New();
         BuildPalette();
         _scheduler.NodeExecuted += OnNodeEvent;
         _scheduler.RunCompleted += OnRunCompleted;
+        _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
         Status = _loc["status.noGraph"];
     }
 
     private void BuildPalette()
     {
+        var vision = new VisionNodeFactory();
         Palette.Clear();
         Palette.Add(new NodeCatalogItem("start", _loc["palette.start"], "test.start:1", id => SampleNodes.Start(id)));
-        Palette.Add(new NodeCatalogItem("grabber", _loc["palette.grabber"], "vision.grabber:1", id => SampleNodes.Grabber(id)));
-        Palette.Add(new NodeCatalogItem("threshold", _loc["palette.threshold"], "vision.threshold:1", id => SampleNodes.Threshold(id)));
+        Palette.Add(new NodeCatalogItem("grabber", _loc["palette.grabber"], "vision.grab:1", id => vision.Create(new NodeContract("vision.grab", 1), id)!));
+        Palette.Add(new NodeCatalogItem("threshold", _loc["palette.threshold"], "vision.threshold:2", id => vision.Create(new NodeContract("vision.threshold", 2), id)!));
         Palette.Add(new NodeCatalogItem("decision", _loc["palette.decision"], "app.decision:1", id => SampleNodes.Decision(id)));
         Palette.Add(new NodeCatalogItem("result", _loc["palette.result"], "app.result:1", id => SampleNodes.LogResult(id)));
         Palette.Add(new NodeCatalogItem("branch", _loc["palette.branch"], "flow.branch:1", id => FlowNodes.Branch(id)));
@@ -117,6 +134,10 @@ public sealed partial class ShellViewModel : ObservableObject
         Palette.Add(new NodeCatalogItem("script", _loc["palette.script"], "flow.script:1", id => ScriptNodeFactory.Create(id, ScriptNodeFactory.DefaultScript, ScriptNode.OutKind.Result)));
         Palette.Add(new NodeCatalogItem("counter", _loc["palette.counter"], "flow.counter:1", id => FlowNodes.Counter(id)));
         Palette.Add(new NodeCatalogItem("delay", _loc["palette.delay"], "flow.delay:1", id => FlowNodes.Delay(id, 20)));
+        Palette.Add(new NodeCatalogItem("measure", _loc["palette.measure"], "vision.measure:1", id => vision.Create(new NodeContract("vision.measure", 1), id)!));
+        Palette.Add(new NodeCatalogItem("hdev", _loc["palette.hdev"], "vision.hdev:1", id => vision.Create(new NodeContract("vision.hdev", 1), id)!));
+        Palette.Add(new NodeCatalogItem("tomat", _loc["palette.tomat"], "vision.tomat:1", id => vision.Create(new NodeContract("vision.tomat", 1), id)!));
+        Palette.Add(new NodeCatalogItem("tohobject", _loc["palette.tohobject"], "vision.tohobject:1", id => vision.Create(new NodeContract("vision.tohobject", 1), id)!));
     }
 
     /// <summary>Adds a palette node as an undoable graph edit at a cascading location. · 以可撤销图编辑在级联坐标添加调色板节点</summary>
@@ -134,6 +155,7 @@ public sealed partial class ShellViewModel : ObservableObject
             await _undo.PushAndRunAsync(
                 GraphCommands.AddNode(Editor.Graph, item.Factory(id), x, y), CancellationToken.None);
             Editor.RebindAll();
+            RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Added node {id} ({item.Contract})");
         }
         catch (Exception ex)
@@ -153,6 +175,7 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             await _undo.PushAndRunAsync(GraphCommands.RemoveNode(Editor.Graph, vm.Id), CancellationToken.None);
             Editor.RebindAll();
+            RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Removed node {vm.Id}");
         }
         catch (Exception ex)
@@ -169,7 +192,12 @@ public sealed partial class ShellViewModel : ObservableObject
     private async Task UndoAsync()
     {
         if (_running) return;
-        if (await _undo.UndoAsync(CancellationToken.None)) Editor.RebindAll();
+        var structural = _undo.PeekUndo() is IGraphEditCommand;
+        if (await _undo.UndoAsync(CancellationToken.None))
+        {
+            if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
+            else RefreshPanel();
+        }
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
     }
@@ -179,7 +207,75 @@ public sealed partial class ShellViewModel : ObservableObject
     private async Task RedoAsync()
     {
         if (_running) return;
-        if (await _undo.RedoAsync(CancellationToken.None)) Editor.RebindAll();
+        var structural = _undo.PeekRedo() is IGraphEditCommand;
+        if (await _undo.RedoAsync(CancellationToken.None))
+        {
+            if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
+            else RefreshPanel();
+        }
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+    }
+
+    /// <summary>Refreshes the panel view after an edit that was not structural (parameter undo). · 非结构变更(参数撤销)后刷新面板显示</summary>
+    private void RefreshPanel()
+    {
+        if (_selectedNode is not null) PropertyPanel.Show(SelectedKernel(_selectedNode)!, _selectedNode.Id);
+    }
+
+    /// <summary>Rebinds the selected projection after undo/redo rebuilt the canvas. · 撤销/重做重建画布后重建选中投影</summary>
+    private void RefreshPanelAfterStructuralChange()
+    {
+        _selectedNode = null;
+        PropertyPanel.Clear();
+    }
+
+    /// <summary>Marks a node as the property-panel target (view wiring from the editor). · 将节点标记为属性面板目标(视图接线传入)</summary>
+    public void SelectNode(NodeViewModel vm)
+    {
+        if (vm is null) return;
+        if (_selectedNode is not null && !ReferenceEquals(_selectedNode, vm)) _selectedNode.IsSelected = false;
+        _selectedNode = vm;
+        vm.IsSelected = true;
+        PropertyPanel.Show(SelectedKernel(vm)!, $"{vm.Id} · {vm.ContractDisplay}");
+    }
+
+    /// <summary>Clears the panel when the selected container is deselected. · 选中容器取消选中时清空面板</summary>
+    public void DeselectNode(NodeViewModel vm)
+    {
+        if (vm is null) return;
+        if (ReferenceEquals(_selectedNode, vm))
+        {
+            _selectedNode = null;
+            vm.IsSelected = false;
+            PropertyPanel.Clear();
+        }
+    }
+
+    /// <summary>Kernel node behind a projection (documented service accessor). · 投影背后的内核节点(文档化服务访问器)</summary>
+    private static INode? SelectedKernel(NodeViewModel vm) => vm.Kernel.Node;
+
+    /// <summary>Applies a panel commit as an undoable SetParameterCommand. · 将面板提交以可撤销 SetParameterCommand 应用</summary>
+    private async Task ApplyParameterAsync(NodeViewModel? vm, string name, object value)
+    {
+        if (vm is null || _running) return;
+        var node = SelectedKernel(vm);
+        if (node is not IParameterized ip)
+        {
+            _dialogs.ReportError($"{vm.Id} has no editable parameters");
+            return;
+        }
+        try
+        {
+            await _undo.PushAndRunAsync(new SetParameterCommand(ip, name, value), CancellationToken.None);
+            RefreshPanel();
+            Log.Add("info", $"param {vm.Id}.{name} = {value}");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            RefreshPanel();
+        }
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
     }
@@ -192,6 +288,8 @@ public sealed partial class ShellViewModel : ObservableObject
         _currentPath = null;
         _undo.Clear();
         Editor.New();
+        _selectedNode = null;
+        PropertyPanel.Clear();
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         Log.Add("info", "New graph");
@@ -209,10 +307,12 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             var graph = GraphJsonSerializer.Deserialize(
                 File.ReadAllText(path),
-                new CombinedNodeFactory(new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory()));
+                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory()));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();
+            _selectedNode = null;
+            PropertyPanel.Clear();
             Editor.Load(graph, Path.GetFileName(path));
             OnPropertyChanged(nameof(CanUndo));
             OnPropertyChanged(nameof(CanRedo));

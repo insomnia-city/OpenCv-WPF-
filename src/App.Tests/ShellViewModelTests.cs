@@ -7,6 +7,7 @@ using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Graph;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
+using HalconWorkflow.Nodes.Vision.Nodes;
 using HalconWorkflow.Runtime.Nodes;
 using Xunit;
 
@@ -106,13 +107,64 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public void Palette_NodesAreReadyToSpawn()
+    public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(10, shell.Palette.Count);
-        shell.AddNodeCommand.Execute(shell.Palette[1]); // grabber
+        Assert.Equal(14, shell.Palette.Count);
+        var grab = shell.Palette.First(p => p.Key == "grabber");
+        Assert.Equal("vision.grab:1", grab.Contract);
+        shell.AddNodeCommand.Execute(grab);
         Assert.Single(shell.Editor.Nodes);
         Assert.True(shell.Editor.Nodes[0].Id.StartsWith("grabber", StringComparison.Ordinal));
+        Assert.True(shell.Editor.Graph.Nodes.Values.Any(g => g.Contract.Namespace == "vision.grab"));
+    }
+
+    [Fact]
+    public void VisionThreshold_PaletteSpawnsV2Node()
+    {
+        var shell = CreateShell();
+        var thr = shell.Palette.First(p => p.Key == "threshold");
+        Assert.Equal("vision.threshold:2", thr.Contract);
+        shell.AddNodeCommand.Execute(thr);
+        var kernel = shell.Editor.Graph.Nodes.Values.Single();
+        Assert.Equal(2, kernel.Contract.Version);
+        Assert.True(kernel.Node is IParameterized);
+    }
+
+    /// <summary>
+    /// Stage-5 acceptance: selecting a vision node reflects its parameters into the
+    /// property panel and edits round-trip through the undo service.
+    /// / 阶段5 验收：选中视觉节点将其参数反射进属性面板,编辑经撤销服务往返
+    /// </summary>
+    [Fact]
+    public void PropertyPanel_EditsRoundTripThroughUndo()
+    {
+        var shell = CreateShell();
+        var thr = shell.Palette.First(p => p.Key == "threshold");
+        shell.AddNodeCommand.Execute(thr);
+        var vm = shell.Editor.Nodes[0];
+
+        shell.SelectNode(vm);
+        Assert.True(shell.PropertyPanel.HasTarget);
+        Assert.Contains(shell.PropertyPanel.Rows, r => r.Name == "Min");
+        Assert.Contains(shell.PropertyPanel.Rows, r => r.Name == "Max");
+        Assert.True(shell.PropertyPanel.Rows.Single(r => r.Name == "Min").HasRange);
+
+        // Commit a typed edit through the row binding → undoable set-parameter command. · 经行绑定提交类型化编辑→可撤销参数命令
+        var minRow = shell.PropertyPanel.Rows.Single(r => r.Name == "Min");
+        minRow.ValueString = "200";
+        var parameters = (ThresholdParameters)((IParameterized)vm.Kernel.Node).ParameterObject;
+        Assert.Equal(200, parameters.Min);
+        Assert.True(shell.CanUndo);
+
+        Assert.True(shell.UndoCommand.CanExecute(null));
+        shell.UndoCommand.Execute(null);
+        Assert.Equal(128, parameters.Min);
+        Assert.Equal("128", shell.PropertyPanel.Rows.Single(r => r.Name == "Min").ValueString);
+
+        shell.RedoCommand.Execute(null);
+        Assert.Equal(200, parameters.Min);
+        Assert.Equal("200", shell.PropertyPanel.Rows.Single(r => r.Name == "Min").ValueString);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:HalconWorkflow.App.ViewModels"
+        xmlns:cv="clr-namespace:HalconWorkflow.App.Controls"
         xmlns:nod="clr-namespace:Nodify;assembly=Nodify"
         Title="{Binding AppTitle}" Width="1280" Height="820" WindowStartupLocation="CenterScreen"
         Background="#FF11151A">
@@ -17,6 +18,11 @@
         <SolidColorBrush x:Key="PanelBorder" Color="#FF2C3A46" />
         <SolidColorBrush x:Key="ToolBarBg" Color="#FF17212A" />
         <SolidColorBrush x:Key="TextOnToolBar" Color="#FFECEFF1" />
+        <cv:ParameterKindVisibilityConverter x:Key="TextVis" Kind="Selection" Not="True" />
+        <cv:ParameterKindVisibilityConverter x:Key="BoolVis" Kind="Boolean" Not="False" />
+        <cv:ParameterKindVisibilityConverter x:Key="SelVis" Kind="Selection" Not="False" />
+        <cv:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <cv:BoolToVisibilityConverter x:Key="InverseBoolToVis" Inverse="True" />
     </Window.Resources>
 
     <Grid>
@@ -107,30 +113,85 @@
                 <nod:NodifyEditor.ItemContainerStyle>
                     <Style TargetType="{x:Type nod:ItemContainer}">
                         <Setter Property="Location" Value="{Binding Location, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <Setter Property="SelectedBrush" Value="#332196F3" />
+                        <Setter Property="SelectedBorderThickness" Value="1.5" />
+                        <EventSetter Event="Selected" Handler="OnItemSelected" />
+                        <EventSetter Event="Unselected" Handler="OnItemUnselected" />
                     </Style>
                 </nod:NodifyEditor.ItemContainerStyle>
             </nod:NodifyEditor>
 
-            <!-- Log · 日志 -->
+            <!-- Property panel + Log · 属性面板 + 日志 -->
             <Border Grid.Column="2" Background="{StaticResource PanelBg}" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1,0,0,0">
-                <DockPanel Margin="8">
-                    <TextBlock DockPanel.Dock="Top" Text="{Binding LogTitle}" Foreground="#FF90A4AE" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,8" />
-                    <ListBox ItemsSource="{Binding Log.Entries}" Background="Transparent" BorderThickness="0"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas" FontSize="11">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <TextBlock Text="{Binding Display}" Foreground="#FFCFD8DC" TextWrapping="NoWrap" />
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="IsHitTestVisible" Value="False" />
-                                <Setter Property="Padding" Value="0,1" />
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                    </ListBox>
-                </DockPanel>
+                <Grid Margin="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="{Binding PropertyPanel.Title}" Foreground="#FF90A4AE" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,6" />
+                    <TextBlock Grid.Row="1" Text="{Binding PropertyPanel.Header}" Foreground="#FF546E7A" FontSize="11"
+                               Margin="0,0,0,6" TextTrimming="CharacterEllipsis" Visibility="{Binding PropertyPanel.HasTarget, Converter={StaticResource BoolToVis}}" />
+
+                    <!-- Property rows / empty placeholder · 参数行/空提示 -->
+                    <Border Grid.Row="2" Background="#FF141B22" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1"
+                            CornerRadius="4" Padding="6" Margin="0,0,0,10">
+                        <Grid>
+                            <TextBlock Text="{Binding PropertyPanel.EmptyText}" Foreground="#FF78909C" FontSize="11"
+                                       VerticalAlignment="Top" TextWrapping="Wrap"
+                                       Visibility="{Binding PropertyPanel.HasTarget, Converter={StaticResource InverseBoolToVis}}" />
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="260"
+                                          Visibility="{Binding PropertyPanel.HasTarget, Converter={StaticResource BoolToVis}}">
+                                <ItemsControl ItemsSource="{Binding PropertyPanel.Rows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="0,0,0,8">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" Foreground="#FFF5F5F5" FontSize="11" FontWeight="SemiBold" />
+                                                    <TextBlock Text="{Binding RangeText}" Foreground="#FF78909C" FontSize="10" Margin="6,1,0,0"
+                                                               Visibility="{Binding HasRange, Converter={StaticResource BoolToVis}}" />
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding Description}" Foreground="#FF78909C" FontSize="10" TextWrapping="Wrap" Margin="0,1,0,4" />
+                                                <TextBox Text="{Binding ValueString, UpdateSourceTrigger=LostFocus}" FontSize="11" Padding="4,2"
+                                                         Background="#FF1C242C" Foreground="White" BorderBrush="#FF37474F"
+                                                         Visibility="{Binding Kind, Converter={StaticResource TextVis}}" />
+                                                <CheckBox IsChecked="{Binding BoolValue}" Foreground="White" FontSize="11"
+                                                          Visibility="{Binding Kind, Converter={StaticResource BoolVis}}" />
+                                                <ComboBox ItemsSource="{Binding Meta.Options}" FontSize="11" Padding="2"
+                                                          Background="#FF1C242C" Foreground="White" BorderBrush="#FF37474F"
+                                                          SelectedItem="{Binding SelectionValue}"
+                                                          Visibility="{Binding Kind, Converter={StaticResource SelVis}}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Row="3" Text="{Binding LogTitle}" Foreground="#FF90A4AE" FontSize="12" FontWeight="SemiBold" Margin="0,2,0,8" />
+                    <Border Grid.Row="5" Background="#FF141B22" BorderBrush="{StaticResource PanelBorder}" BorderThickness="1" CornerRadius="4" Padding="6">
+                        <ListBox ItemsSource="{Binding Log.Entries}" Background="Transparent" BorderThickness="0"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" FontFamily="Consolas" FontSize="11">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Display}" Foreground="#FFCFD8DC" TextWrapping="NoWrap" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="IsHitTestVisible" Value="False" />
+                                    <Setter Property="Padding" Value="0,1" />
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </Border>
+                </Grid>
             </Border>
         </Grid>
 
