@@ -3,11 +3,13 @@ using System.Globalization;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using HalconWorkflow.Abstractions.Undo;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Execution;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
+using HalconWorkflow.Nodes.Flow;
 using HalconWorkflow.Runtime.Nodes;
 
 namespace HalconWorkflow.App.ViewModels;
@@ -24,6 +26,7 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly IDialogService _dialogs;
     private readonly SynchronizationContext? _ui;
     private readonly GraphScheduler _scheduler = new();
+    private readonly UndoService _undo = new();
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -69,6 +72,8 @@ public sealed partial class ShellViewModel : ObservableObject
     public string MenuSave => _loc["menu.save"];
     public string MenuRun => _loc["menu.run"];
     public string MenuStop => _loc["menu.stop"];
+    public string MenuUndo => _loc["menu.undo"];
+    public string MenuRedo => _loc["menu.redo"];
     public string MenuLanguage => _loc["menu.language"];
     public string LogTitle => _loc["log.title"];
     public string PaletteTitle => _loc["palette.title"];
@@ -77,6 +82,12 @@ public sealed partial class ShellViewModel : ObservableObject
     /// <summary>Whether the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
 
+    /// <summary>Undo availability for the toolbar. · 撤销可用状态</summary>
+    public bool CanUndo => !_running && _undo.CanUndoCount > 0;
+
+    /// <summary>Redo availability for the toolbar. · 重做可用状态</summary>
+    public bool CanRedo => !_running && _undo.CanRedoCount > 0;
+
     public ShellViewModel(LocalizationService loc, IDialogService dialogs)
     {
         _loc = loc;
@@ -84,6 +95,7 @@ public sealed partial class ShellViewModel : ObservableObject
         _ui = SynchronizationContext.Current;
         Editor = new MainEditorViewModel();
         Log = new LogViewModel();
+        Editor.RemoveAsyncHandler = RemoveNodeAsync;
         _loc.PropertyChanged += (_, _) => OnPropertyChanged((string?)null);
         Editor.New();
         BuildPalette();
@@ -100,11 +112,16 @@ public sealed partial class ShellViewModel : ObservableObject
         Palette.Add(new NodeCatalogItem("threshold", _loc["palette.threshold"], "vision.threshold:1", id => SampleNodes.Threshold(id)));
         Palette.Add(new NodeCatalogItem("decision", _loc["palette.decision"], "app.decision:1", id => SampleNodes.Decision(id)));
         Palette.Add(new NodeCatalogItem("result", _loc["palette.result"], "app.result:1", id => SampleNodes.LogResult(id)));
+        Palette.Add(new NodeCatalogItem("branch", _loc["palette.branch"], "flow.branch:1", id => FlowNodes.Branch(id)));
+        Palette.Add(new NodeCatalogItem("join", _loc["palette.join"], "flow.join:1", id => FlowNodes.Join(id)));
+        Palette.Add(new NodeCatalogItem("script", _loc["palette.script"], "flow.script:1", id => ScriptNodeFactory.Create(id, ScriptNodeFactory.DefaultScript, ScriptNode.OutKind.Result)));
+        Palette.Add(new NodeCatalogItem("counter", _loc["palette.counter"], "flow.counter:1", id => FlowNodes.Counter(id)));
+        Palette.Add(new NodeCatalogItem("delay", _loc["palette.delay"], "flow.delay:1", id => FlowNodes.Delay(id, 20)));
     }
 
-    /// <summary>Adds a palette node at a cascading location. · 在级联坐标添加调色板节点</summary>
+    /// <summary>Adds a palette node as an undoable graph edit at a cascading location. · 以可撤销图编辑在级联坐标添加调色板节点</summary>
     [RelayCommand]
-    private void AddNode(NodeCatalogItem item)
+    private async Task AddNodeAsync(NodeCatalogItem item)
     {
         if (item is null || _running) return;
         if (Editor.Graph.Nodes.Count >= 500) { _dialogs.ReportError("Too many nodes."); return; }
@@ -112,11 +129,59 @@ public sealed partial class ShellViewModel : ObservableObject
         var x = 60 + (_paletteOffset % 5) * 40;
         var y = 60 + (_paletteOffset % 5) * 40;
         _paletteOffset++;
-        if (Editor.AddNode(item.Factory(id), x, y) is not null)
+        try
         {
+            await _undo.PushAndRunAsync(
+                GraphCommands.AddNode(Editor.Graph, item.Factory(id), x, y), CancellationToken.None);
+            Editor.RebindAll();
             Log.Add("info", $"Added node {id} ({item.Contract})");
-            Status = _loc["status.ready"];
         }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            Log.Add("error", $"Add failed: {ex.Message}");
+        }
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+    }
+
+    /// <summary>Undoable node removal (wired into each NodeViewModel's DeleteCommand). · 可撤销的节点删除(接入各节点删除命令)</summary>
+    private async Task RemoveNodeAsync(NodeViewModel vm)
+    {
+        if (vm is null || _running) return;
+        try
+        {
+            await _undo.PushAndRunAsync(GraphCommands.RemoveNode(Editor.Graph, vm.Id), CancellationToken.None);
+            Editor.RebindAll();
+            Log.Add("info", $"Removed node {vm.Id}");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            Log.Add("error", $"Remove failed: {ex.Message}");
+        }
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+    }
+
+    /// <summary>Prepares the canvas for keyboard/product gestures. · 撤销一步编辑</summary>
+    [RelayCommand]
+    private async Task UndoAsync()
+    {
+        if (_running) return;
+        if (await _undo.UndoAsync(CancellationToken.None)) Editor.RebindAll();
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+    }
+
+    /// <summary>Re-applies the last undone edit. · 重做最近撤销的编辑</summary>
+    [RelayCommand]
+    private async Task RedoAsync()
+    {
+        if (_running) return;
+        if (await _undo.RedoAsync(CancellationToken.None)) Editor.RebindAll();
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
     }
 
     /// <summary>New blank graph. · 新建空白图</summary>
@@ -125,7 +190,10 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         if (!ConfirmDiscard()) return;
         _currentPath = null;
+        _undo.Clear();
         Editor.New();
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
         Log.Add("info", "New graph");
         Status = _loc["status.ready"];
     }
@@ -139,10 +207,15 @@ public sealed partial class ShellViewModel : ObservableObject
         if (path is null) return;
         try
         {
-            var graph = GraphJsonSerializer.Deserialize(File.ReadAllText(path), new SampleNodeFactory());
+            var graph = GraphJsonSerializer.Deserialize(
+                File.ReadAllText(path),
+                new CombinedNodeFactory(new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory()));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
+            _undo.Clear();
             Editor.Load(graph, Path.GetFileName(path));
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
             _currentPath = path;
             Log.Add("info", $"Loaded {graph.Nodes.Count} nodes / {graph.Links.Count} links from {path}");
             Status = _loc["status.ready"];

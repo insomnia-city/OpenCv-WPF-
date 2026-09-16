@@ -7,6 +7,11 @@
         Title="{Binding AppTitle}" Width="1280" Height="820" WindowStartupLocation="CenterScreen"
         Background="#FF11151A">
 
+    <Window.InputBindings>
+        <KeyBinding Command="{Binding UndoCommand}" Key="Z" Modifiers="Control" />
+        <KeyBinding Command="{Binding RedoCommand}" Key="Y" Modifiers="Control" />
+    </Window.InputBindings>
+
     <Window.Resources>
         <SolidColorBrush x:Key="PanelBg" Color="#FF1C242C" />
         <SolidColorBrush x:Key="PanelBorder" Color="#FF2C3A46" />
@@ -28,6 +33,12 @@
                     <Button Content="{Binding MenuNew}" Command="{Binding NewCommand}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                     <Button Content="{Binding MenuLoad}" Command="{Binding LoadCommand}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                     <Button Content="{Binding MenuSave}" Command="{Binding SaveCommand}" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Margin="18,0,0,0">
+                    <Button Content="{Binding MenuUndo}" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Padding="10,4" Margin="0,0,6,0"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuRedo}" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Margin="18,0,0,0">
                     <Button Content="{Binding MenuRun}" Command="{Binding RunCommand}" Padding="14,4" Margin="0,0,6,0"

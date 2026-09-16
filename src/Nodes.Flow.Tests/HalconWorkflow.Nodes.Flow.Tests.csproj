@@ -1,11 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0-windows</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,9 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\App\HalconWorkflow.App.csproj" />
     <ProjectReference Include="..\Core\HalconWorkflow.Core.csproj" />
-    <ProjectReference Include="..\Runtime\HalconWorkflow.Runtime.csproj" />
+    <ProjectReference Include="..\Abstractions\HalconWorkflow.Abstractions.csproj" />
     <ProjectReference Include="..\Nodes.Flow\HalconWorkflow.Nodes.Flow.csproj" />
   </ItemGroup>
 

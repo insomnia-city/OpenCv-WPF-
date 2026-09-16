@@ -18,6 +18,7 @@
     <ProjectReference Include="..\Core\HalconWorkflow.Core.csproj" />
     <ProjectReference Include="..\Abstractions\HalconWorkflow.Abstractions.csproj" />
     <ProjectReference Include="..\Runtime\HalconWorkflow.Runtime.csproj" />
+    <ProjectReference Include="..\Nodes.Flow\HalconWorkflow.Nodes.Flow.csproj" />
   </ItemGroup>
 
 </Project>

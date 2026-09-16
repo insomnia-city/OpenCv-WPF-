@@ -84,6 +84,17 @@
 - 全解决方案：**53 项单测全绿**（36 Core + 11 Runtime + 6 App）
 - 冒烟：`src/App/bin/Debug/net9.0-windows/HalconWorkflow.App.exe` 启动窗口正常
 
-> 下一步（阶段 4）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、属性面板、数据面板、运行期实时数据（scope 值/图像预览）。
+**阶段 4（流程节点 Nodes.Flow + §9.2 撤销）已落地**：
+- `src/Nodes.Flow/` — 图内一等公民的流程节点（§13.1 第 182/592 行）：`flow.branch`（按条件二选一数据路由）、`flow.join`（双输入齐备后汇聚，缺一即故障）、`flow.counter`（批次内计数）、`flow.delay`、`flow.script`
+  - `ScriptNode` — 安全递归下降求值器（无动态编译）：字面量/标识符(作用域 tag)/算术/比较/逻辑/三目/字符串拼接；输出可按 Integer/Real/String/Bool/Result 强制转换
+  - `FlowNodeFactory` — 按契约名（ns+版本）反序列化；`IPort.IsRequired`（接口默认实现）让可选输入（如二选一路由）豁免悬空检查，未破坏既有节点
+- `src/Abstractions/Undo/` — 具体 `UndoService`（撤销栈+重做+组合命令+上限 200+跨工程清空）与图编辑命令（AddNode/RemoveNode 含节点+坐标+连线快照回滚 / Connect/Disconnect）
+- App 接线：调色板新增 5 个流程节点（中/英/韩本地化）、加/删/撤销/重做全部走全局命令栈、工具栏 Undo/Redo + Ctrl+Z/Ctrl+Y、`CombinedNodeFactory` 混合反序列化示例+流程节点、flow 契约族卡片配色
+- `src/Nodes.Flow.Tests/` — 17 项：流程节点单测 + 求值器单测 + **§9.2 与内核同 Undo 冒烟**（加节点→撤销→内核回滚→重做→恢复；连线撤销；组合命令一次性撤销；栈上限 200）
+  - `src/App.Tests/` 新增 1 项：壳层撤销/重做驱动内核 + 流程节点可生成
+- 全解决方案：**71 项单测全绿**（36 Core + 11 Runtime + 6 App + 17 Nodes.Flow + 1 App 撤销验收 = 36+11+6+17+1）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+> 下一步（阶段 5）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、属性面板、数据面板、运行期实时数据（scope 值/图像预览）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

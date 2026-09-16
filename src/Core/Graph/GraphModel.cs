@@ -158,7 +158,7 @@ public sealed class GraphModel
         {
             var hasExecIn = gn.Inputs.Any(p => p.Kind == PortKind.Exec);
             if (!hasExecIn) continue;
-            foreach (var p in gn.Inputs.Where(p => p.Kind == PortKind.Data))
+            foreach (var p in gn.Inputs.Where(p => p.Kind == PortKind.Data && p.IsRequired))
             {
                 if (!p.IsConnected)
                     _issues.Add(new ValidationIssue(ValidationIssueKind.DanglingPort,

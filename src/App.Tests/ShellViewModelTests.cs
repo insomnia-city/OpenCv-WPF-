@@ -109,10 +109,38 @@ public class ShellViewModelTests
     public void Palette_NodesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(5, shell.Palette.Count);
+        Assert.Equal(10, shell.Palette.Count);
         shell.AddNodeCommand.Execute(shell.Palette[1]); // grabber
         Assert.Single(shell.Editor.Nodes);
         Assert.True(shell.Editor.Nodes[0].Id.StartsWith("grabber", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Stage-4 acceptance: palette flow nodes spawn and shell undo/redo drives the same kernel the editor edits. 
+    /// 阶段4 验收：调色板流程节点可生成，且壳层撤销/重做与编辑器操作同一内核
+    /// </summary>
+    [Fact]
+    public void FlowPalette_And_UndoRedo_DriveKernel()
+    {
+        var shell = CreateShell();
+        Assert.True(shell.Palette.Any(p => p.Key == "branch"));
+        Assert.True(shell.Palette.Any(p => p.Key == "script"));
+        Assert.True(shell.Palette.Any(p => p.Key == "delay"));
+
+        shell.AddNodeCommand.Execute(shell.Palette[5]);   // flow.branch → spawns via undo path
+        shell.AddNodeCommand.Execute(shell.Palette[7]);   // flow.script
+        Assert.Equal(2, shell.Editor.Nodes.Count);
+        Assert.True(shell.CanUndo);
+        Assert.False(shell.CanRedo);
+
+        shell.UndoCommand.Execute(null);
+        Assert.Single(shell.Editor.Nodes);
+        Assert.False(shell.Editor.Graph.Nodes.Values.Any(n => n.Contract.Namespace == "flow.script"));
+        Assert.True(shell.CanRedo);
+
+        shell.RedoCommand.Execute(null);
+        Assert.Equal(2, shell.Editor.Nodes.Count);
+        Assert.True(shell.Editor.Graph.Nodes.Values.Any(n => n.Contract.Namespace == "flow.script"));
     }
 
     /// <summary>

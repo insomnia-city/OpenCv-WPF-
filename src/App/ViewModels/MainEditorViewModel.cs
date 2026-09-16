@@ -13,6 +13,12 @@ public sealed partial class MainEditorViewModel : ObservableObject
 {
     private string _title = "untitled";
 
+    /// <summary>
+    /// When set by the shell, node deletion runs through the undoable command path (handler) instead of the local kernel edit.
+    /// 壳层设置后，节点删除走可撤销命令路径(处理程序)而非本地内核编辑
+    /// </summary>
+    public Func<NodeViewModel, Task>? RemoveAsyncHandler { get; set; }
+
     /// <summary>Kernel graph the canvas edits. · 画布编辑的内核图</summary>
     public GraphModel Graph { get; private set; } = new();
 
@@ -82,10 +88,25 @@ public sealed partial class MainEditorViewModel : ObservableObject
     private NodeViewModel CreateNodeViewModel(GraphNode kernel)
     {
         var vm = new NodeViewModel(kernel);
-        vm.DeleteCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(() => RemoveNode(vm));
+        vm.DeleteCommand = new CommunityToolkit.Mvvm.Input.RelayCommand(() =>
+        {
+            if (RemoveAsyncHandler is not null)
+            {
+                _ = RemoveAsyncHandler(vm);   // undoable path · 可撤销路径
+            }
+            else
+            {
+                RemoveNode(vm);
+            }
+        });
         Nodes.Add(vm);
         return vm;
     }
+
+    /// <summary>
+    /// Re-projects the whole kernel into projections after undo/redo structural edits. · 撤销/重做结构编辑后整体重建投影
+    /// </summary>
+    public void RebindAll() => RebindCollections();
 
     private void RebindCollections()
     {

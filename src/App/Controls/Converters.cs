@@ -44,7 +44,11 @@ public sealed class AccentToBrushConverter : IValueConverter
         ["threshold"] = new SolidColorBrush(Color.FromRgb(0x00, 0xBC, 0xD4)),
         ["decision"] = new SolidColorBrush(Color.FromRgb(0xFF, 0x98, 0x00)),
         ["result"] = new SolidColorBrush(Color.FromRgb(0x43, 0xA0, 0x47)),
-        ["delay"] = new SolidColorBrush(Color.FromRgb(0x60, 0x7D, 0x8B))
+        ["delay"] = new SolidColorBrush(Color.FromRgb(0x60, 0x7D, 0x8B)),
+        ["branch"] = new SolidColorBrush(Color.FromRgb(0xFF, 0xB3, 0x00)),
+        ["join"] = new SolidColorBrush(Color.FromRgb(0x5C, 0x6B, 0xC0)),
+        ["script"] = new SolidColorBrush(Color.FromRgb(0x26, 0xC6, 0xDA)),
+        ["counter"] = new SolidColorBrush(Color.FromRgb(0xAB, 0x47, 0xBC))
     };
 
     public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)

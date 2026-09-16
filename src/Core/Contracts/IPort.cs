@@ -44,4 +44,11 @@ public interface IPort
     /// 数据端口传递的引用(不参与绑定)
     /// </summary>
     object? Value { get; set; }
+
+    /// <summary>
+    /// Whether a connected execution must feed this data input; true by default. Optional inputs
+    /// (e.g. one-of-two routing on flow nodes) set this to false so the dangling check skips them.
+    /// 已连接的执行是否必须喂给此数据输入;默认为必须。可选输入(如流程节点二选一路由)置 false 以豁免悬空检查
+    /// </summary>
+    bool IsRequired => true;
 }
