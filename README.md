@@ -72,6 +72,18 @@
   - `Trace/TraceWriter.cs` — 追溯 JSONL 输出，字段对齐 §8 cycle_records 原型（trigger_id / batch / node / kind / result_json / ts）
   - `RuntimeOptions.cs` — CLI 参数解析（--once/--cycles/--interval/--timeout/--trace/--step/--quiet/--batch）
 - `src/Runtime.Tests/` — 11 项冒烟测试（解析/执行/停止/取消/追踪文件落盘）
-- 全解决方案：**47 项单测全绿**（36 Core + 11 Runtime）
+
+**阶段 3（WPF 最小画布 App）已落地**：
+- `src/App/` — WPF（net9.0-windows）+ MVVM（CommunityToolkit.Mvvm）+ Nodify 画布
+  - `ViewModels/` — ShellViewModel（载图/保存/新建/运行/停止 + 节点库）/ MainEditorViewModel（节点与连线投影镜像）/ NodeViewModel / PortViewModel / ConnectionViewModel（端点移动自动重锚）/ LogViewModel
+  - `Views/MainWindow.xaml` — 工具栏 + 节点库(200) + Nodify 画布(全屏缩放/拖移) + 日志面板(330) + 状态栏
+  - `Controls/` — NodeTemplateSelector（起点/挂起/标准卡片路由）+ 配色转换器（契约族/执行状态/端口类别）
+  - `Services/` — LocalizationService（zh-Hans/en/ko 热切换 + 英文缺键回退，ADR-010）/ IDialogService（VM 可测）
+  - 节点位置双向同步内核 → 保存到契约名 JSON（`*.graph.json` schema §5.8）
+- `src/App.Tests/` — 6 项验收：绑定面仅投影（不得泄漏内核实体 + 服务访问器白名单）/ 本地化热切换 / 编辑器序列化往返 / 连线移动重锚 / 增删节点 / 调色板生成
+- 全解决方案：**53 项单测全绿**（36 Core + 11 Runtime + 6 App）
+- 冒烟：`src/App/bin/Debug/net9.0-windows/HalconWorkflow.App.exe` 启动窗口正常
+
+> 下一步（阶段 4）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、属性面板、数据面板、运行期实时数据（scope 值/图像预览）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
