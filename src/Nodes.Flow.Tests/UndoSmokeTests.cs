@@ -107,6 +107,57 @@ public class UndoSmokeTests
         Assert.Equal(1, reloaded.Nodes.Count);   // counter removed from the reloaded kernel · 从重载内核移除 counter
     }
 
+    [Fact]
+    public async Task SavePoint_UndoToSavePoint_RollsBackOnlyUnsavedEdits()
+    {
+        var graph = new GraphModel();
+        var undo = new UndoService();
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None);
+        undo.MarkSaved();                              // "saved" the counter · 已保存 counter
+        Assert.False(undo.CanUndoToSavePoint);
+
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Join("j"), 0, 0), CancellationToken.None);
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Branch("b"), 0, 0), CancellationToken.None);
+        Assert.Equal(3, graph.Nodes.Count);
+        Assert.True(undo.CanUndoToSavePoint);
+
+        var steps = await undo.UndoToSavePointAsync(CancellationToken.None);
+        Assert.Equal(2, steps);
+        Assert.Equal(["c"], graph.Nodes.Keys);
+        Assert.False(undo.CanUndoToSavePoint);
+        Assert.Equal(2, undo.CanRedoCount);            // roll-back is itself redoable · 回滚本身可重做
+
+        Assert.True(await undo.RedoAsync(CancellationToken.None));
+        Assert.Equal(2, graph.Nodes.Count);
+    }
+
+    [Fact]
+    public async Task SavePoint_SurvivesStackCapTrim()
+    {
+        var graph = new GraphModel();
+        var undo = new UndoService();
+        undo.MarkSaved();
+        for (var i = 0; i < 250; i++)
+            await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Delay($"d{i}", 0), 0, 0), CancellationToken.None);
+
+        Assert.Equal(200, undo.CanUndoCount);          // cap trims the oldest · 上限裁剪最旧
+        Assert.True(undo.CanUndoToSavePoint);
+        Assert.Equal(200, await undo.UndoToSavePointAsync(CancellationToken.None));
+        Assert.False(undo.CanUndoToSavePoint);
+    }
+
+    [Fact]
+    public async Task Clear_ResetsSavePoint()
+    {
+        var undo = new UndoService();
+        var graph = new GraphModel();
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None);
+        undo.MarkSaved();
+        undo.Clear();
+        Assert.Equal(0, undo.CanUndoCount);
+        Assert.False(undo.CanUndoToSavePoint);
+    }
+
     private static async Task<GraphLink?> Connector(GraphModel graph, UndoService undo, INode from, INode to)
     {
         var execOut = from.Outputs.First(p => p.Kind == PortKind.Exec);

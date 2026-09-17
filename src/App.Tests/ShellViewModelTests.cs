@@ -252,6 +252,55 @@ public class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Stage9_Role_ReadOnly_DeniesEditAndAuditsDenial()
+    {
+        var shell = CreateShell();
+        Assert.True(shell.CanEdit);
+        Assert.True(shell.CanOperate);
+
+        shell.SelectedRole = shell.RoleOptions.Single(r => r.Value == UserRole.ReadOnly);
+        Assert.Equal(UserRole.ReadOnly, shell.Roles.Current);
+        Assert.False(shell.CanEdit);
+        Assert.False(shell.CanOperate);
+
+        shell.AddNodeCommand.Execute(shell.Palette.First(p => p.Key == "threshold"));
+        Assert.Empty(shell.Editor.Nodes);           // refused before touching the kernel · 触碰内核前即被拒
+
+        var denials = await WaitForAuditAsync(shell, new AuditFilter(Action: AuditActions.AccessDenied));
+        Assert.Contains(denials, r => r.Target == AuditActions.AddNode); // failed attempt is audited · 失败尝试落审计
+        Assert.Contains(await WaitForAuditAsync(shell, new AuditFilter(Action: AuditActions.SetRole)),
+            r => r.Target == nameof(UserRole.ReadOnly));
+    }
+
+    [Fact]
+    public void Stage9_UndoToSavePoint_RevertsUnsavedEdits()
+    {
+        var shell = CreateShell();
+        shell.AddNodeCommand.Execute(shell.Palette.First(p => p.Key == "threshold"));
+        Assert.Single(shell.Editor.Nodes);
+        Assert.True(shell.CanUndoToSavePoint);
+
+        Assert.True(shell.UndoToSaveCommand.CanExecute(null));
+        shell.UndoToSaveCommand.Execute(null);
+
+        Assert.Empty(shell.Editor.Nodes);           // rolled back to the save point · 回滚到保存点
+        Assert.False(shell.CanUndoToSavePoint);
+    }
+
+    private static async Task<IReadOnlyList<OperationRecord>> WaitForAuditAsync(ShellViewModel shell, AuditFilter filter)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        IReadOnlyList<OperationRecord> rows = [];
+        while (DateTime.UtcNow < deadline)
+        {
+            rows = await shell.AuditStore.QueryAsync(filter, CancellationToken.None);
+            if (rows.Count > 0) break;
+            await Task.Delay(50);
+        }
+        return rows;
+    }
+
+    [Fact]
     public void VisionThreshold_PaletteSpawnsV2Node()
     {
         var shell = CreateShell();

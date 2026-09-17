@@ -27,6 +27,9 @@ using HalconWorkflow.Storage;
 
 namespace HalconWorkflow.App.ViewModels;
 
+/// <summary>A selectable application role with its localized label (§9.3). · 可选应用角色(含本地化标签)(§9.3)</summary>
+public sealed record RoleOption(UserRole Value, string Name);
+
 /// <summary>
 /// Shell coordinator: node library, document commands and run/stop wiring. All bindings are projections, never kernel entities. 
 /// 壳层协调器：节点库、文档命令与运行/停止接线。绑定只使用投影，绝不使用内核实体
@@ -50,6 +53,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly ImageArchiveStore _images;
     private readonly PreviewRing _preview;
     private readonly SqlAuditService _audit;
+    private readonly RoleService _roles = new();
+    private readonly Dictionary<IUndoableCommand, long> _auditIds = new(ReferenceEqualityComparer.Instance);
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -136,11 +141,25 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string TabEditor => _loc["tab.editor"];
     public string TabDashboard => _loc["tab.dashboard"];
     public string TabAudit => _loc["tab.audit"];
+    public string MenuUndoToSave => _loc["menu.undoToSave"];
+    public string RoleLabel => _loc["role.label"];
 
     /// <summary>Operating-system user stamped onto every audit entry (§9.1). · 写入每条审计的操作系统用户(§9.1)</summary>
     public string CurrentUser { get; } = Environment.UserName;
 
-    /// <summary>Whether the graph is currently executing. · 正在执行标记</summary>
+    /// <summary>Role gate used by command guards and UI enablement (§9.3). · 命令守卫与界面启用使用的权限门(§9.3)</summary>
+    public IRoleService Roles => _roles;
+
+    /// <summary>Selectable roles for the toolbar. · 工具栏可选角色</summary>
+    public IReadOnlyList<RoleOption> RoleOptions { get; private set; }
+
+    /// <summary>True when the current role may edit the graph. · 当前角色可编辑图</summary>
+    public bool CanEdit => _roles.IsAllowed(AuditActions.AddNode);
+
+    /// <summary>True when the current role may run / stop the graph. · 当前角色可运行/停止图</summary>
+    public bool CanOperate => _roles.IsAllowed(AuditActions.Run);
+
+    /// <summary>True when the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
 
     /// <summary>Undo availability for the toolbar. · 撤销可用状态</summary>
@@ -148,6 +167,24 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Redo availability for the toolbar. · 重做可用状态</summary>
     public bool CanRedo => !_running && _undo.CanRedoCount > 0;
+
+    /// <summary>Undo-to-save-point availability (§9.2). · 撤回到保存点可用状态(§9.2)</summary>
+    public bool CanUndoToSavePoint => !_running && _undo.CanUndoToSavePoint;
+
+    private RoleOption _selectedRole = null!;
+
+    /// <summary>Selected role; switching it audits and re-evaluates UI gates (§9.3). · 当前角色;切换时落审计并重算界面门控(§9.3)</summary>
+    public RoleOption SelectedRole
+    {
+        get => _selectedRole;
+        set
+        {
+            if (value is null || !SetProperty(ref _selectedRole, value)) return;
+            _roles.SetRole(value.Value);
+            RecordAudit(AuditActions.SetRole, value.Value.ToString());
+            OnRoleChanged();
+        }
+    }
 
     public ShellViewModel(LocalizationService loc, IDialogService dialogs)
     {
@@ -160,7 +197,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         PropertyPanel.ParameterCommitted += (name, value) =>
             _ = ApplyParameterAsync(_selectedNode, name, value);
         Editor.RemoveAsyncHandler = RemoveNodeAsync;
-        _loc.PropertyChanged += (_, _) => OnPropertyChanged((string?)null);
+        _loc.PropertyChanged += (_, _) => OnCultureChanged();
         Editor.New();
         BuildPalette();
         _scheduler.NodeExecuted += OnNodeEvent;
@@ -180,7 +217,56 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Dashboard.ExportRequested += OnDashboardExport;
         AuditView = new AuditViewModel(_loc, _audit);
         AuditView.ExportRequested += OnAuditExport;
+        RoleOptions = BuildRoleOptions();
+        _selectedRole = RoleOptions.First(o => o.Value == _roles.Current);
+        _undo.MarkSaved();
         Status = _loc["status.noGraph"];
+    }
+
+    /// <summary>Builds the localized role list for the toolbar (§9.3). · 构建工具栏本地化角色列表(§9.3)</summary>
+    private IReadOnlyList<RoleOption> BuildRoleOptions() =>
+    [
+        new(UserRole.ReadOnly, _loc["role.readonly"]),
+        new(UserRole.Operator, _loc["role.operator"]),
+        new(UserRole.Engineer, _loc["role.engineer"]),
+        new(UserRole.Admin, _loc["role.admin"])
+    ];
+
+    /// <summary>Re-evaluates role-dependent gates and refreshes undo/redo availability. · 重算角色相关门控并刷新撤销/重做可用性</summary>
+    private void OnRoleChanged()
+    {
+        OnPropertyChanged(nameof(CanEdit));
+        OnPropertyChanged(nameof(CanOperate));
+        OnPropertyChanged(nameof(CanUndo));
+        OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(CanUndoToSavePoint));
+    }
+
+    /// <summary>Rebuilds localized strings after a language switch (§4.8). · 语言切换后重建本地化字符串(§4.8)</summary>
+    private void OnCultureChanged()
+    {
+        var current = _roles.Current;
+        RoleOptions = BuildRoleOptions();
+        _selectedRole = RoleOptions.First(o => o.Value == current);
+        OnPropertyChanged(nameof(RoleOptions));
+        OnPropertyChanged(nameof(SelectedRole));
+        OnPropertyChanged((string?)null);
+    }
+
+    /// <summary>
+    /// Permission guard (§9.3): when the current role may not perform the action, the attempt is
+    /// audited as denied and refused. · 权限守卫(§9.3)：当前角色不可执行该动作时，记录拒绝审计并拒绝执行。
+    /// </summary>
+    private bool EnsureAllowed(string action)
+    {
+        if (_roles.IsAllowed(action)) return true;
+        RecordAudit(AuditActions.AccessDenied, action);
+        Post(() =>
+        {
+            Log.Add("warn", $"Denied: {action} (role {_roles.Current})");
+            Status = _loc["status.denied"];
+        });
+        return false;
     }
 
     /// <summary>
@@ -299,48 +385,49 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task AddNodeAsync(NodeCatalogItem item)
     {
         if (item is null || _running) return;
+        if (!EnsureAllowed(AuditActions.AddNode)) return;
         if (Editor.Graph.Nodes.Count >= 500) { _dialogs.ReportError("Too many nodes."); return; }
         var id = $"{item.Key}{++_seq}";
         var x = 60 + (_paletteOffset % 5) * 40;
         var y = 60 + (_paletteOffset % 5) * 40;
         _paletteOffset++;
+        var command = GraphCommands.AddNode(Editor.Graph, item.Factory(id), x, y);
         try
         {
-            await _undo.PushAndRunAsync(
-                GraphCommands.AddNode(Editor.Graph, item.Factory(id), x, y), CancellationToken.None);
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
             Editor.RebindAll();
             RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Added node {id} ({item.Contract})");
-            RecordAudit(AuditActions.AddNode, id, after: item.Contract);
+            _auditIds[command] = await RecordAuditAsync(AuditActions.AddNode, id, after: item.Contract);
         }
         catch (Exception ex)
         {
             _dialogs.ReportError(ex.Message);
             Log.Add("error", $"Add failed: {ex.Message}");
         }
-        OnPropertyChanged(nameof(CanUndo));
-        OnPropertyChanged(nameof(CanRedo));
+        RaiseUndoState();
     }
 
     /// <summary>Undoable node removal (wired into each NodeViewModel's DeleteCommand). · 可撤销的节点删除(接入各节点删除命令)</summary>
     private async Task RemoveNodeAsync(NodeViewModel vm)
     {
         if (vm is null || _running) return;
+        if (!EnsureAllowed(AuditActions.RemoveNode)) return;
+        var command = GraphCommands.RemoveNode(Editor.Graph, vm.Id);
         try
         {
-            await _undo.PushAndRunAsync(GraphCommands.RemoveNode(Editor.Graph, vm.Id), CancellationToken.None);
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
             Editor.RebindAll();
             RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Removed node {vm.Id}");
-            RecordAudit(AuditActions.RemoveNode, vm.Id);
+            _auditIds[command] = await RecordAuditAsync(AuditActions.RemoveNode, vm.Id);
         }
         catch (Exception ex)
         {
             _dialogs.ReportError(ex.Message);
             Log.Add("error", $"Remove failed: {ex.Message}");
         }
-        OnPropertyChanged(nameof(CanUndo));
-        OnPropertyChanged(nameof(CanRedo));
+        RaiseUndoState();
     }
 
     /// <summary>Prepares the canvas for keyboard/product gestures. · 撤销一步编辑</summary>
@@ -348,15 +435,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task UndoAsync()
     {
         if (_running) return;
-        var structural = _undo.PeekUndo() is IGraphEditCommand;
+        if (!EnsureAllowed(AuditActions.Undo)) return;
+        var command = _undo.PeekUndo();
+        var structural = command is IGraphEditCommand;
         if (await _undo.UndoAsync(CancellationToken.None))
         {
             if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
             else RefreshPanel();
-            RecordAudit(AuditActions.Undo, structural ? "structural" : "parameter");
+            await RecordAuditAsync(AuditActions.Undo, structural ? "structural" : "parameter",
+                undoRecordId: LinkOf(command));
         }
-        OnPropertyChanged(nameof(CanUndo));
-        OnPropertyChanged(nameof(CanRedo));
+        RaiseUndoState();
     }
 
     /// <summary>Re-applies the last undone edit. · 重做最近撤销的编辑</summary>
@@ -364,16 +453,45 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task RedoAsync()
     {
         if (_running) return;
-        var structural = _undo.PeekRedo() is IGraphEditCommand;
+        if (!EnsureAllowed(AuditActions.Redo)) return;
+        var command = _undo.PeekRedo();
+        var structural = command is IGraphEditCommand;
         if (await _undo.RedoAsync(CancellationToken.None))
         {
             if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
             else RefreshPanel();
-            RecordAudit(AuditActions.Redo, structural ? "structural" : "parameter");
+            await RecordAuditAsync(AuditActions.Redo, structural ? "structural" : "parameter",
+                undoRecordId: LinkOf(command));
         }
+        RaiseUndoState();
+    }
+
+    /// <summary>Rolls the graph back to the last save point (§9.2). · 将图回滚至最近保存点(§9.2)</summary>
+    [RelayCommand]
+    private async Task UndoToSaveAsync()
+    {
+        if (_running) return;
+        if (!EnsureAllowed(AuditActions.Undo)) return;
+        var steps = await _undo.UndoToSavePointAsync(CancellationToken.None);
+        if (steps > 0)
+        {
+            Editor.RebindAll();
+            RefreshPanelAfterStructuralChange();
+            await RecordAuditAsync(AuditActions.Undo, "save-point", after: steps.ToString(CultureInfo.InvariantCulture));
+        }
+        RaiseUndoState();
+    }
+
+    /// <summary>Raises the toolbar undo/redo/save-point availability after a stack change. · 栈变化后刷新工具栏撤销/重做/保存点可用性</summary>
+    private void RaiseUndoState()
+    {
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
+        OnPropertyChanged(nameof(CanUndoToSavePoint));
     }
+
+    private long? LinkOf(IUndoableCommand? command)
+        => command is not null && _auditIds.TryGetValue(command, out var id) ? id : null;
 
     /// <summary>Refreshes the panel view after an edit that was not structural (parameter undo). · 非结构变更(参数撤销)后刷新面板显示</summary>
     private void RefreshPanel()
@@ -417,40 +535,43 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task ApplyParameterAsync(NodeViewModel? vm, string name, object value)
     {
         if (vm is null || _running) return;
+        if (!EnsureAllowed(AuditActions.SetParameter)) return;
         var node = SelectedKernel(vm);
         if (node is not IParameterized ip)
         {
             _dialogs.ReportError($"{vm.Id} has no editable parameters");
             return;
         }
+        var command = new SetParameterCommand(ip, name, value);
         try
         {
-            await _undo.PushAndRunAsync(new SetParameterCommand(ip, name, value), CancellationToken.None);
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
             RefreshPanel();
             Log.Add("info", $"param {vm.Id}.{name} = {value}");
-            RecordAudit(AuditActions.SetParameter, $"{vm.Id}.{name}", after: value?.ToString());
+            _auditIds[command] = await RecordAuditAsync(AuditActions.SetParameter, $"{vm.Id}.{name}",
+                before: command.BeforeValue?.ToString(), after: command.AfterValue?.ToString());
         }
         catch (Exception ex)
         {
             _dialogs.ReportError(ex.Message);
             RefreshPanel();
         }
-        OnPropertyChanged(nameof(CanUndo));
-        OnPropertyChanged(nameof(CanRedo));
+        RaiseUndoState();
     }
 
     /// <summary>New blank graph. · 新建空白图</summary>
     [RelayCommand]
     private void New()
     {
+        if (!EnsureAllowed(AuditActions.NewGraph)) return;
         if (!ConfirmDiscard()) return;
         _currentPath = null;
         _undo.Clear();
+        _auditIds.Clear();
         Editor.New();
         _selectedNode = null;
         PropertyPanel.Clear();
-        OnPropertyChanged(nameof(CanUndo));
-        OnPropertyChanged(nameof(CanRedo));
+        RaiseUndoState();
         Log.Add("info", "New graph");
         RecordAudit(AuditActions.NewGraph);
         Status = _loc["status.ready"];
@@ -461,6 +582,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void Load()
     {
         if (_running) return;
+        if (!EnsureAllowed(AuditActions.LoadGraph)) return;
         var path = _dialogs.OpenGraphFile(GraphFilter);
         if (path is null) return;
         try
@@ -471,11 +593,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();
+            _auditIds.Clear();
             _selectedNode = null;
             PropertyPanel.Clear();
             Editor.Load(graph, Path.GetFileName(path));
-            OnPropertyChanged(nameof(CanUndo));
-            OnPropertyChanged(nameof(CanRedo));
+            RaiseUndoState();
             _currentPath = path;
             Log.Add("info", $"Loaded {graph.Nodes.Count} nodes / {graph.Links.Count} links from {path}");
             RecordAudit(AuditActions.LoadGraph, path);
@@ -493,6 +615,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private void Save()
     {
         if (_running) return;
+        if (!EnsureAllowed(AuditActions.SaveGraph)) return;
         var path = _currentPath;
         if (path is null)
         {
@@ -504,6 +627,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             File.WriteAllText(path, GraphJsonSerializer.Serialize(Editor.Graph));
             _currentPath = path;
             Editor.Title = Path.GetFileName(path);
+            _undo.MarkSaved(); // edits above here are "unsaved" · 此点之上视为未保存
+            RaiseUndoState();
             Log.Add("info", $"Saved {Editor.Graph.Nodes.Count} nodes / {Editor.Graph.Links.Count} links to {path}");
             RecordAudit(AuditActions.SaveGraph, path);
         }
@@ -519,6 +644,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task RunAsync()
     {
         if (_running) return;
+        if (!EnsureAllowed(AuditActions.Run)) return;
         var issues = Editor.Graph.Validate();
         if (issues.Count > 0)
         {
@@ -528,6 +654,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         _running = true;
         OnPropertyChanged(nameof(IsRunning));
+        RaiseUndoState();
         _runCts = new CancellationTokenSource();
         _scheduler.Load(Editor.Graph);
         RecordAudit(AuditActions.Run, _currentPath);
@@ -546,10 +673,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private async Task StopAsync()
     {
         if (!_running) return;
+        if (!EnsureAllowed(AuditActions.Stop)) return;
         await _scheduler.StopAsync();
         _runCts?.Cancel();
         _running = false;
         OnPropertyChanged(nameof(IsRunning));
+        RaiseUndoState();
         Post(() => Log.Add("warn", "Run stopped by user"));
         RecordAudit(AuditActions.Stop, _currentPath);
         Status = _loc["status.ready"];
@@ -625,6 +754,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         var path = _dialogs.SaveCsvFile($"trace-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
         if (path is null) return;
+        RecordAudit(AuditActions.Export, path);
         _ = ExportAsync(export, request, path);
     }
 
@@ -657,6 +787,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
         var path = _dialogs.SaveCsvFile($"audit-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
         if (path is null) return;
+        RecordAudit(AuditActions.Export, path);
         _ = ExportAsync(export, request, path);
     }
 
@@ -666,20 +797,29 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     /// 绝不打断用户操作。
     /// </summary>
     public void RecordAudit(string action, string? target = null, string? before = null, string? after = null)
+        => _ = RecordAuditAsync(action, target, before, after);
+
+    /// <summary>
+    /// Stamps one operation-audit entry and returns its row id, so an undo can later point back at
+    /// the edit it reverted (§9.2 back-link). · 写入一条操作审计并返回其行 id，供撤回时回指被撤销的编辑(§9.2 回链)。
+    /// </summary>
+    public Task<long> RecordAuditAsync(string action, string? target = null, string? before = null,
+        string? after = null, long? undoRecordId = null)
     {
-        var record = new OperationRecord(0, DateTimeOffset.UtcNow, CurrentUser, action, target, before, after);
-        _ = AppendAuditAsync(record);
+        var record = new OperationRecord(0, DateTimeOffset.UtcNow, CurrentUser, action, target, before, after, undoRecordId);
+        return AppendAuditAsync(record);
     }
 
-    private async Task AppendAuditAsync(OperationRecord record)
+    private async Task<long> AppendAuditAsync(OperationRecord record)
     {
         try
         {
-            await _audit.RecordAsync(record, CancellationToken.None).ConfigureAwait(false);
+            return await _audit.RecordAsync(record, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Post(() => Log.Add("warn", $"audit failed: {ex.Message}"));
+            return 0;
         }
     }
 

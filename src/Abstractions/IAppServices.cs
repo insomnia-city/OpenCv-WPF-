@@ -44,6 +44,78 @@ public static class AuditActions
     public const string Redo = "edit.redo";
     public const string Run = "run.start";
     public const string Stop = "run.stop";
+
+    /// <summary>Data was read out to a file (CSV export). · 数据被导出为文件(CSV 导出)</summary>
+    public const string Export = "data.export";
+
+    /// <summary>Current role was changed (§9.3). · 当前角色被变更(§9.3)</summary>
+    public const string SetRole = "role.set";
+
+    /// <summary>A permission check failed and the operation was refused (§9.3). · 权限校验失败且操作被拒(§9.3)</summary>
+    public const string AccessDenied = "access.denied";
+}
+
+/// <summary>
+/// Application roles, ordered least → most privileged (§9.3). 
+/// 应用角色，按权限由低到高排列(§9.3)
+/// </summary>
+public enum UserRole
+{
+    /// <summary>May only view boards / export. · 仅可查看看板/导出</summary>
+    ReadOnly = 0,
+
+    /// <summary>May also run and stop the graph. · 另可运行/停止图</summary>
+    Operator = 1,
+
+    /// <summary>May also edit the graph and parameters. · 另可编辑图与参数</summary>
+    Engineer = 2,
+
+    /// <summary>May also manage roles. · 另可管理角色</summary>
+    Admin = 3
+}
+
+/// <summary>
+/// Role → minimum-role policy for audit action codes (§9.3): the single place that decides which
+/// role may perform which operation, so the UI gate and the audit record never disagree.
+/// · 审计动作码 → 最低角色的策略(§9.3)：决定哪个角色可执行哪个操作的唯一位置，
+///   使界面门控与审计记录永不矛盾。
+/// </summary>
+public static class RolePolicy
+{
+    /// <summary>Minimum role required to perform an action. · 执行某动作所需的最低角色</summary>
+    public static UserRole MinimumFor(string action) => action switch
+    {
+        AuditActions.NewGraph or AuditActions.LoadGraph or AuditActions.SaveGraph
+            or AuditActions.AddNode or AuditActions.RemoveNode
+            or AuditActions.Connect or AuditActions.Disconnect
+            or AuditActions.SetParameter or AuditActions.Undo or AuditActions.Redo
+            => UserRole.Engineer,
+        AuditActions.Run or AuditActions.Stop => UserRole.Operator,
+        AuditActions.SetRole => UserRole.Admin,
+        _ => UserRole.ReadOnly // viewing, refreshing, exporting are read operations · 查看/刷新/导出属只读
+    };
+
+    /// <summary>True when the role is at least the minimum for the action. · 角色达到动作最低要求</summary>
+    public static bool Allows(UserRole role, string action) => role >= MinimumFor(action);
+}
+
+/// <summary>
+/// Role-based permission gate (§9.3): the effective role, a change event and the action check.
+/// · 基于角色的权限门(§9.3)：当前角色、变更事件与动作校验。
+/// </summary>
+public interface IRoleService
+{
+    /// <summary>Effective role. · 当前生效角色</summary>
+    UserRole Current { get; }
+
+    /// <summary>Raised after the role changes. · 角色变更后触发</summary>
+    event Action<UserRole>? Changed;
+
+    /// <summary>Switches the effective role. · 切换当前生效角色</summary>
+    void SetRole(UserRole role);
+
+    /// <summary>True when the current role may perform the action. · 当前角色是否可执行该动作</summary>
+    bool IsAllowed(string action);
 }
 
 /// <summary>
@@ -126,4 +198,20 @@ public interface IUndoService
     /// Current redo depth. · 当前重做深度
     /// </summary>
     int CanRedoCount { get; }
+
+    /// <summary>
+    /// True when there is at least one edit above the last save point. · 保存点之上是否还有编辑
+    /// </summary>
+    bool CanUndoToSavePoint { get; }
+
+    /// <summary>
+    /// Undoes until the last save point; returns how many steps were rolled back (§9.2).
+    /// · 撤销至最近保存点；返回回滚步数(§9.2)
+    /// </summary>
+    Task<int> UndoToSavePointAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Marks the current stack depth as the save point (after load / save). · 将当前栈深标记为保存点(载入/保存后)
+    /// </summary>
+    void MarkSaved();
 }

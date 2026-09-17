@@ -14,12 +14,16 @@ public sealed class UndoService : IUndoService
     private readonly LinkedList<IUndoableCommand> _undo = new();
     private readonly LinkedList<IUndoableCommand> _redo = new();
     private const int MaxDepth = 200;
+    private int _savePointDepth;
 
     /// <inheritdoc />
     public int CanUndoCount { get { lock (_gate) return _undo.Count; } }
 
     /// <inheritdoc />
     public int CanRedoCount { get { lock (_gate) return _redo.Count; } }
+
+    /// <inheritdoc />
+    public bool CanUndoToSavePoint { get { lock (_gate) return _undo.Count > _savePointDepth; } }
 
     /// <inheritdoc />
     public async Task PushAndRunAsync(IUndoableCommand cmd, CancellationToken ct)
@@ -29,7 +33,11 @@ public sealed class UndoService : IUndoService
         {
             _undo.AddLast(cmd);
             _redo.Clear();
-            while (_undo.Count > MaxDepth) _undo.RemoveFirst();
+            while (_undo.Count > MaxDepth)
+            {
+                _undo.RemoveFirst();
+                if (_savePointDepth > 0) _savePointDepth--; // keep the save point anchored · 保持保存点锚定
+            }
         }
     }
 
@@ -64,7 +72,18 @@ public sealed class UndoService : IUndoService
     }
 
     /// <summary>Clears all stacks (switch project / load new graph). · 清空全部栈(切换工程/载入新图)</summary>
-    public void Clear() { lock (_gate) { _undo.Clear(); _redo.Clear(); } }
+    public void Clear() { lock (_gate) { _undo.Clear(); _redo.Clear(); _savePointDepth = 0; } }
+
+    /// <inheritdoc />
+    public void MarkSaved() { lock (_gate) _savePointDepth = _undo.Count; }
+
+    /// <inheritdoc />
+    public async Task<int> UndoToSavePointAsync(CancellationToken ct)
+    {
+        var steps = 0;
+        while (CanUndoToSavePoint && await UndoAsync(ct).ConfigureAwait(false)) steps++;
+        return steps;
+    }
 
     /// <summary>
     /// Top of the undo stack without consuming it (drives shell rebind decisions). · 撤销栈顶(不消费,驱动壳层重建判断)

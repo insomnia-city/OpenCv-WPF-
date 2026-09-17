@@ -16,6 +16,15 @@ public sealed class SetParameterCommand(IParameterized node, string name, object
 
     public string Description => $"Set '{name}'";
 
+    /// <summary>Name of the written parameter. · 写入的参数名</summary>
+    public string ParameterName => name;
+
+    /// <summary>Value before the first apply (materialized by the first DoAsync). · 首次应用前的值(首次 DoAsync 后可用)</summary>
+    public object? BeforeValue => _old;
+
+    /// <summary>Value applied by this command. · 本命令应用的值</summary>
+    public object? AfterValue => value;
+
     public Task DoAsync(CancellationToken ct)
     {
         var (old, _) = ParameterReflection.Apply(node.ParameterObject, name, value);

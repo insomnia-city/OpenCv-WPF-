@@ -37,23 +37,28 @@
         <Border Grid.Row="0" Background="{StaticResource ToolBarBg}" Padding="8,6" BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                    <Button Content="{Binding MenuNew}" Command="{Binding NewCommand}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
-                    <Button Content="{Binding MenuLoad}" Command="{Binding LoadCommand}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
-                    <Button Content="{Binding MenuSave}" Command="{Binding SaveCommand}" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuNew}" Command="{Binding NewCommand}" IsEnabled="{Binding CanEdit}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuLoad}" Command="{Binding LoadCommand}" IsEnabled="{Binding CanEdit}" Margin="0,0,6,0" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuSave}" Command="{Binding SaveCommand}" IsEnabled="{Binding CanEdit}" Padding="10,4" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Margin="18,0,0,0">
                     <Button Content="{Binding MenuUndo}" Command="{Binding UndoCommand}" IsEnabled="{Binding CanUndo}" Padding="10,4" Margin="0,0,6,0"
                             Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
-                    <Button Content="{Binding MenuRedo}" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Padding="10,4"
+                    <Button Content="{Binding MenuRedo}" Command="{Binding RedoCommand}" IsEnabled="{Binding CanRedo}" Padding="10,4" Margin="0,0,6,0"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuUndoToSave}" Command="{Binding UndoToSaveCommand}" IsEnabled="{Binding CanUndoToSavePoint}" Padding="10,4"
                             Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Margin="18,0,0,0">
-                    <Button Content="{Binding MenuRun}" Command="{Binding RunCommand}" Padding="14,4" Margin="0,0,6,0"
+                    <Button Content="{Binding MenuRun}" Command="{Binding RunCommand}" IsEnabled="{Binding CanOperate}" Padding="14,4" Margin="0,0,6,0"
                             Background="#FF2E7D32" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
-                    <Button Content="{Binding MenuStop}" Command="{Binding StopCommand}" Padding="14,4"
+                    <Button Content="{Binding MenuStop}" Command="{Binding StopCommand}" IsEnabled="{Binding CanOperate}" Padding="14,4"
                             Background="#FFB71C1C" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding RoleLabel}" Foreground="{StaticResource TextOnToolBar}" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
+                    <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding SelectedRole}" Width="130" Margin="0,0,18,0"
+                              DisplayMemberPath="Name" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" />
                     <TextBlock Text="{Binding MenuLanguage}" Foreground="{StaticResource TextOnToolBar}" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding Languages}" SelectedItem="{Binding Culture}" Width="140"
                               DisplayMemberPath="NativeName" Background="#FF263238" Foreground="{StaticResource TextOnToolBar}" />
@@ -79,6 +84,7 @@
                             <DataTemplate>
                                 <Button Margin="0,2" Padding="8,6" Background="#FF263238" Foreground="#FFF5F5F5"
                                         BorderThickness="0" HorizontalContentAlignment="Stretch"
+                                        IsEnabled="{Binding DataContext.CanEdit, RelativeSource={RelativeSource AncestorType=Window}}"
                                         Command="{Binding DataContext.AddNodeCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                         CommandParameter="{Binding}">
                                     <Button.Template>
@@ -89,6 +95,11 @@
                                                     <TextBlock Text="{Binding Contract}" Foreground="#FF90A4AE" FontSize="10" />
                                                 </StackPanel>
                                             </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Opacity" Value="0.4" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
                                         </ControlTemplate>
                                     </Button.Template>
                                 </Button>

@@ -169,12 +169,14 @@
 - `IDialogService.SaveCsvFile` — CSV 导出目标选择接缝（VM 可测；`Dashboard.ExportRequested` 解耦文件对话框与导出服务）
 - 操作审计（§9.1）— `src/Storage/TraceSchema.cs` **v3**：新增独立追加表 `operation_records`（`occurred_at`/`user_name`/`action`/`target`/`before_json`/`after_json`/`undo_record_id` + 索引）；`src/Storage/AuditSql.cs`（过滤 SQL 唯一来源）+ `SqlAuditService`（`IAuditStore`：追加返回 id、按用户/时间/对象/动作过滤、剪枝）；`ShellViewModel` 在 新建/载入/保存/加节点/删节点/改参数/撤销/重做/运行/停止 时 `RecordAudit`（即发即忘，失败仅记日志），并新增「审计」Tab（`AuditViewModel`：过滤框 + 表格 + 导出），与周期追溯完全分离
 - 阶段闸门（§13.1 第 9 行）：**看板/统计/CSV 同源不另建第二份断言**（`cycle_records`/`trace_images`/`operation_records`/`schema_version` 四表，审计表不复制周期数据）+ **存图归档冒烟**（落文件+落行+按 trigger 查+剪枝）
+- 撤回/保存点（§9.2）— `src/Abstractions/Undo/UndoService.cs` 新增 `MarkSaved()`/`CanUndoToSavePoint`/`UndoToSavePointAsync()`（栈上限 200 裁剪最旧时锚定保存点；`Clear` 重置）；`IUndoService` 契约补齐；`ShellViewModel` 在 新建/载入/保存 后 `MarkSaved()`；工具栏加「撤回到保存点」按钮；每条编辑命令的审计行 id 记入 `_auditIds`，撤销/重做时写 `edit.undo`/`edit.redo` 审计并回填 `undo_record_id`（**§9.2 回链**）
+- 权限角色（§9.3）— `src/Abstractions/IAppServices.cs` 新增 `UserRole`（只读/操作员/工程师/管理员）、`RolePolicy`（动作码→最低角色唯一映射，界面门控与审计永不矛盾）、`IRoleService`；`src/App/Services/RoleService.cs` 默认实现（默认工程师）；`ShellViewModel` 新增 `SelectedRole`/`RoleOptions`（本地化）/`CanEdit`/`CanOperate`/`EnsureAllowed`，在 新建/载入/保存/加删节点/改参数/撤销/重做/运行/停止 处强制校验，**被拒动作落 `access.denied` 审计（含失败的权限尝试）**，工具栏加角色下拉
 - App 接线：注册 `IStatsService`/`IImageArchive`/`PreviewRing`/`IAuditStore`（经 `ShellViewModel.Stats`/`Images`/`Preview`/`AuditStore` 暴露），并由 `Dashboard`/`AuditView` 共享同一 "trace" SQLite 源
 - `src/Storage.Tests/Stage9GateTests.cs` — 6 项：schema v3 建表+维度列+幂等、v1→最新迁移保行且审计表可写、统计同源（线别良率 100%/60%、库内仅四表）、存图落文件+按 trigger 查+剪枝、预览环有界、审计追加/过滤/剪枝
-- `src/Nodes.Data.Tests/` — 8 项（+1：`data.write` 维度解析）；`src/App.Tests/` — 25 项（+1：阶段9 服务同源；+5：看板刷新/维度切换/导出请求/清空/本地化热切换；+6：审计刷新/过滤转发/导出/清空/错误状态/本地化；+1：shell 审计写入独立表）
-- 全解决方案：**183 项单测全绿**（36 Core + 11 Runtime + 25 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data）
-- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（编辑/看板/审计 三 Tab 渲染 + 已注册 SQLite 追溯源与阶段9 统计/存图/预览/审计服务）
+- `src/Nodes.Flow.Tests/UndoSmokeTests.cs` — 8 项（+3：保存点回滚仅未保存编辑/栈上限裁剪后保存点仍有效/`Clear` 重置保存点）；`src/App.Tests/RoleTests.cs` — 12 项（角色→动作映射、只读仍可导出、`RoleService` 变更事件）；`src/Nodes.Data.Tests/` — 8 项（+1：`data.write` 维度解析）；`src/App.Tests/` — 39 项（+1：阶段9 服务同源；+5：看板；+6：审计；+1：shell 审计写入；+2：只读角色拒绝编辑并落拒绝审计、撤回到保存点；+12：角色策略/服务）
+- 全解决方案：**200 项单测全绿**（36 Core + 11 Runtime + 39 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（编辑/看板/审计 三 Tab + 角色下拉与「撤回到保存点」渲染 + 已注册 SQLite 追溯源与阶段9 统计/存图/预览/审计服务）
 
-> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、撤回回链 UI（§9.2 撤销栈与 `undo_record_id` 贯通）、真实 Halcon 适配器（部署机接入 $MVTEC）。
+> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
