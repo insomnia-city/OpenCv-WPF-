@@ -157,6 +157,21 @@
 - 全解决方案：**163 项单测全绿**（36 Core + 11 Runtime + 12 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 6 Storage + 7 Nodes.Data）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备、演示运动控制器与 SQLite 追溯数据源）
 
-> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、数据面板、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
+**阶段 9（追溯看板能力层：存图 · 良率/产量统计 · 结果预览）已落地**：
+- `src/Abstractions/IStorage.cs` — 阶段 9 扩展：`IRecord.Dimensions`（默认成员，无则 null）+ `TraceRecord.Dimensions` init 属性 + `DimensionKeys`(line/machine/shift/model/recipe) + `ImageKind`/`ImageArchiveRequest`/`ImageAsset`/`IImageArchive`；`IStatsService` 改签名（`SliceAsync` 返回 `IReadOnlyList<YieldSlice>` + `SummaryAsync`）
+- `src/Storage/DbDialect.cs` — 新增 `DimensionColumn`(`dim_*`)、`DateKey`(按方言日期表达式)、`LastInsertIdSql`（Postgres 走 INSERT…RETURNING，其余用 last-insert-id）
+- `src/Storage/TraceSchema.cs` — **schema v1→v2 就地迁移**：`cycle_records` 新增 5 个 `dim_*` 维度列 + `trace_images` 表（原图/渲染图归档行）+ 索引；`UpgradeStatements` 用跨库 `ALTER TABLE … ADD …`；`QueryAllSql`/`CycleRow` 带维度别名；`EnsureCreatedAsync` 幂等
+- `src/Storage/StatsService.cs` — `IStatsService`：直接 `GROUP BY` 聚合 `cycle_records`（§9.5.4，**与看板/CSV 同源，不另建第二份**）；按线别/机台/班次/机型/Recipe/日期分片 + `SummaryAsync` 总良率
+- `src/Storage/ImageArchive.cs` — `ImageArchiveStore`：快照**落文件**（归档根 + 相对路径入 `trace_images` 行，§9.5.3），`SaveAsync`/`OpenReadAsync`/`QueryByTriggerAsync`/`PruneAsync`；图像绝不进热路径记录
+- `src/Storage/PreviewRing.cs` — `PreviewRing`（§9.5.1）：每节点最近 N 帧有界内存环，`Publish` 轻锁不阻塞周期、`Enabled` 可关
+- `src/Nodes.Data/DataNodes.cs` — `data.write` 新增可选 `Dimensions` 参数（`k=v;k=v`）
+- 阶段闸门（§13.1 第 9 行）：**看板/统计/CSV 同源不另建第二份断言**（库内仅 `schema_version`/`cycle_records`/`trace_images` 三表）+ **存图归档冒烟**（落文件+落行+按 trigger 查+剪枝）
+- App 接线：注册 `IStatsService`/`IImageArchive`/`PreviewRing`（经 `ShellViewModel.Stats`/`Images`/`Preview` 暴露），与看板共享同一 "trace" SQLite 源
+- `src/Storage.Tests/Stage9GateTests.cs` — 5 项：schema v2 建表+维度列+幂等、v1→v2 迁移保行、统计同源（线别良率 100%/60%、库内仅三表）、存图落文件+按 trigger 查+剪枝、预览环有界
+- `src/Nodes.Data.Tests/` — 8 项（+1：`data.write` 维度解析）；`src/App.Tests/` — 13 项（+1：阶段9 服务同源）
+- 全解决方案：**170 项单测全绿**（36 Core + 11 Runtime + 13 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 11 Storage + 8 Nodes.Data）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册 SQLite 追溯源与阶段9 统计/存图/预览服务）
+
+> 下一步：看板 WPF 视图（追溯表/良率图/结果预览面板接线）、交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

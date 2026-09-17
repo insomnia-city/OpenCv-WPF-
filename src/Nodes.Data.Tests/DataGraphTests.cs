@@ -61,6 +61,7 @@ public class DataGraphTests
         Assert.Contains(meta, m => m.Name == "Source");
         Assert.Contains(meta, m => m.Name == "Kind");
         Assert.Contains(meta, m => m.Name == "ImageRef");
+        Assert.Contains(meta, m => m.Name == "Dimensions");
 
         var query = new DataQueryNode("q");
         var qmeta = ParameterReflection.Summarize(query.Params);
@@ -97,6 +98,31 @@ public class DataGraphTests
         Assert.Equal("B7", record.Batch);
         Assert.Equal("{\"v\":1}", record.ResultJson);
         Assert.False(string.IsNullOrEmpty(record.TriggerId));
+    }
+
+    [Fact]
+    public async Task Graph_DataWrite_PublishesGroupingDimensions()
+    {
+        var (scheduler, runtime, store) = DataTestHelpers.BuildEnv();
+        await using var _ = runtime;
+
+        var graph = new GraphModel();
+        var write = new DataWriteNode("w");
+        write.Params.Source = "mem";
+        write.Params.Kind = "ok";
+        write.Params.Dimensions = "line=L1; machine=M2 ; shift = night ;bogus";
+        graph.AddNode(write);
+
+        scheduler.Load(graph);
+        var result = await scheduler.RunOnceAsync(CancellationToken.None);
+
+        Assert.True(result.Success);
+        var dimensions = Assert.Single(store.Records).Dimensions;
+        Assert.NotNull(dimensions);
+        Assert.Equal("L1", dimensions![DimensionKeys.Line]);
+        Assert.Equal("M2", dimensions[DimensionKeys.Machine]);
+        Assert.Equal("night", dimensions[DimensionKeys.Shift]);
+        Assert.False(dimensions.ContainsKey("bogus"));
     }
 
     [Fact]

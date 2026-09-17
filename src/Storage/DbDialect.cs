@@ -125,4 +125,28 @@ public static class DbDialect
         DbProviderKind.SqlServer => $"{sql} OFFSET @__skip ROWS FETCH NEXT @__take ROWS ONLY",
         _ => $"{sql} LIMIT @__take OFFSET @__skip"
     };
+
+    /// <summary>Physical column holding a grouping dimension (§9.5.4): dim_line, dim_machine… · 分组维度物理列</summary>
+    public static string DimensionColumn(string key) => "dim_" + key;
+
+    /// <summary>SQL expression extracting a YYYY-MM-DD date key from the ts column. · 从 ts 列提取 YYYY-MM-DD 日期键的 SQL 表达式</summary>
+    public static string DateKey(DbProviderKind kind) => kind switch
+    {
+        DbProviderKind.SqlServer => "CONVERT(varchar(10), ts, 23)",
+        DbProviderKind.MySql => "DATE_FORMAT(ts, '%Y-%m-%d')",
+        DbProviderKind.Postgres => "to_char(ts, 'YYYY-MM-DD')",
+        _ => "substr(ts, 1, 10)"
+    };
+
+    /// <summary>
+    /// SQL returning the id of the last inserted row. PostgreSQL uses INSERT…RETURNING instead,
+    /// so this is only consulted for the other providers. · 返回最后插入行 id 的 SQL。PostgreSQL 用
+    /// INSERT…RETURNING，故仅其他提供商使用。
+    /// </summary>
+    public static string LastInsertIdSql(DbProviderKind kind) => kind switch
+    {
+        DbProviderKind.SqlServer => "SELECT CAST(SCOPE_IDENTITY() AS BIGINT)",
+        DbProviderKind.MySql => "SELECT LAST_INSERT_ID()",
+        _ => "SELECT last_insert_rowid()"
+    };
 }

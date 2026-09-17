@@ -27,6 +27,9 @@ public sealed class DataWriteParameters
 
     [NodeParameter("ImageRef", "Value", description: "Snapshot file relative path (images never go into BLOB) · 快照文件相对路径(图像不进 BLOB)")]
     public string ImageRef { get; set; } = "";
+
+    [NodeParameter("Dimensions", "Data", description: "Grouping dimensions k=v; k=v (line/machine/shift/model/recipe) · 分组维度 k=v; k=v")]
+    public string Dimensions { get; set; } = "";
 }
 
 /// <summary>
@@ -53,11 +56,29 @@ internal sealed class DataWriteNode(string id)
             NullIfEmpty(Params.Kind) ?? "trace",
             NullIfEmpty(Params.Batch) ?? ctx.Current.Batch,
             resultJson,
-            NullIfEmpty(Params.ImageRef));
+            NullIfEmpty(Params.ImageRef))
+        {
+            Dimensions = ParseDimensions(Params.Dimensions)
+        };
         await store.AppendAsync(record, ct).ConfigureAwait(false);
     }
 
     private static string? NullIfEmpty(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
+
+    private static IReadOnlyDictionary<string, string?>? ParseDimensions(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var map = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = part.IndexOf('=');
+            if (separator <= 0) continue;
+            var key = part[..separator].Trim();
+            if (key.Length == 0) continue;
+            map[key] = part[(separator + 1)..].Trim();
+        }
+        return map.Count == 0 ? null : map;
+    }
 
     private static string Serialize(object value) => value is string s ? s : JsonSerializer.Serialize(value);
 }

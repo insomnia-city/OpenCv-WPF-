@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Windows;
+using HalconWorkflow.Abstractions;
 using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.App.ViewModels;
@@ -10,6 +11,7 @@ using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
 using HalconWorkflow.Nodes.Vision.Nodes;
 using HalconWorkflow.Runtime.Nodes;
+using HalconWorkflow.Storage;
 using Xunit;
 
 namespace HalconWorkflow.App.Tests;
@@ -194,6 +196,36 @@ public class ShellViewModelTests : IDisposable
         Assert.NotNull(shell.Data.ResolveRecordStore("trace"));
         Assert.NotNull(shell.Data.ResolveQueryStore("trace"));
         Assert.NotNull(shell.Data.ResolveExportService("trace"));
+    }
+
+    /// <summary>
+    /// Stage-9 acceptance: the shell registers stats / image archive / preview ring, and stats
+    /// aggregates the very same "trace" cycle_records source the board reads (§9.5.3, §9.5.4).
+    /// / 阶段9 验收：壳层注册统计/存图归档/预览环，且统计聚合的正是看板所读的同一 "trace"
+    ///   cycle_records 源(§9.5.3, §9.5.4)。
+    /// </summary>
+    [Fact]
+    public void Stage9_StatsImagesPreview_ShareTraceSource()
+    {
+        var shell = CreateShell();
+        var ct = CancellationToken.None;
+        var query = shell.Data.ResolveQueryStore("trace")!;
+        query.ExecuteAsync("DELETE FROM cycle_records", null, ct).GetAwaiter().GetResult();
+        query.ExecuteAsync("INSERT INTO cycle_records (trigger_id, kind, dim_line) VALUES ('u1', 'ok', 'LA')",
+            null, ct).GetAwaiter().GetResult();
+
+        var summary = shell.Stats.SummaryAsync(
+            DateTimeOffset.UtcNow.AddYears(-1), DateTimeOffset.UtcNow.AddYears(1), ct).GetAwaiter().GetResult();
+        Assert.Equal(1, summary.Cycles);
+        Assert.Equal(1, summary.Ok);
+        Assert.Equal(100d, summary.YieldPercent, 3);
+
+        var asset = shell.Images.SaveAsync(
+            new ImageArchiveRequest("u1", ImageKind.Original), new byte[] { 7, 8, 9 }, ct).GetAwaiter().GetResult();
+        Assert.True(asset.Id > 0);
+
+        shell.Preview.Publish(new PreviewFrame("vision.inspect:2", DateTimeOffset.UtcNow, Summary: "frame"));
+        Assert.Equal("frame", shell.Preview.Latest("vision.inspect:2")!.Summary);
     }
 
     [Fact]

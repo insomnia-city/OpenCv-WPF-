@@ -1,3 +1,5 @@
+using HalconWorkflow.Abstractions;
+
 namespace HalconWorkflow.Storage;
 
 /// <summary>
@@ -12,21 +14,30 @@ public sealed record CycleRow(
     string? Kind,
     string? ResultJson,
     string? ImageRef,
-    string? Ts);
+    string? Ts,
+    string? Line,
+    string? Machine,
+    string? Shift,
+    string? Model,
+    string? Recipe);
 
 /// <summary>
-/// Versioned schema for the traceability table (§8.4): DDL per provider + embedded migration.
-/// · 追溯表的分版本 schema(§8.4)：按提供商的 DDL + 内嵌迁移。
+/// Versioned schema for the traceability tables (§8.4 / §9.5.3): DDL per provider + embedded
+/// migration. v2 adds the §9.5.4 grouping dimensions and the <c>trace_images</c> archive.
+/// · 追溯表的分版本 schema(§8.4 / §9.5.3)：按提供商的 DDL + 内嵌迁移。v2 增加 §9.5.4 分组维度
+///   与 trace_images 归档表。
 /// </summary>
 public static class TraceSchema
 {
     /// <summary>Current trace schema version. · 当前追溯 schema 版本</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>Default SELECT of all cycle columns with stable aliases. · 全列稳定别名默认查询</summary>
     public const string QueryAllSql =
         "SELECT seq AS Seq, trigger_id AS TriggerId, batch AS Batch, node AS Node, " +
-        "kind AS Kind, result_json AS ResultJson, image_ref AS ImageRef, ts AS Ts " +
+        "kind AS Kind, result_json AS ResultJson, image_ref AS ImageRef, ts AS Ts, " +
+        "dim_line AS Line, dim_machine AS Machine, dim_shift AS Shift, " +
+        "dim_model AS Model, dim_recipe AS Recipe " +
         "FROM cycle_records ORDER BY seq";
 
     /// <summary>
@@ -35,10 +46,17 @@ public static class TraceSchema
     public static async Task EnsureCreatedAsync(System.Data.Common.DbConnection conn, DbProviderKind kind, CancellationToken ct)
     {
         if (conn.State != System.Data.ConnectionState.Open) await conn.OpenAsync(ct).ConfigureAwait(false);
-        if (await GetVersionAsync(conn, ct).ConfigureAwait(false) >= Version) return;
+        var version = await GetVersionAsync(conn, ct).ConfigureAwait(false);
+        if (version >= Version) return;
 
+        // Fresh databases get the full shape from the CREATE statements; older ones are altered.
+        // · 全新库由 CREATE 语句给出完整结构；旧库走 ALTER 迁移。
         foreach (var statement in CreateStatements(kind))
             await ExecuteAsync(conn, statement, ct).ConfigureAwait(false);
+
+        if (version >= 1)
+            foreach (var statement in UpgradeStatements(kind, version))
+                await ExecuteAsync(conn, statement, ct).ConfigureAwait(false);
 
         await ExecuteAsync(conn, UpsertVersionSql(kind), ct, ("@v", Version)).ConfigureAwait(false);
     }
@@ -72,10 +90,53 @@ public static class TraceSchema
             + ", kind " + DbDialect.BoundedText(kind, 32) + " NULL"
             + ", result_json " + DbDialect.LongText(kind) + " NULL"
             + ", image_ref " + DbDialect.BoundedText(kind, 400) + " NULL"
+            + DimensionColumns(kind)
             + ", ts " + DbDialect.TimestampColumn(kind)),
         CreateIndexIfMissing(kind, "ix_cycle_batch", "cycle_records", "batch, ts"),
-        CreateIndexIfMissing(kind, "ix_cycle_trigger", "cycle_records", "trigger_id")
+        CreateIndexIfMissing(kind, "ix_cycle_trigger", "cycle_records", "trigger_id"),
+        CreateTableIfMissing(kind, "trace_images",
+            "id " + DbDialect.AutoIdColumn(kind)
+            + ", trigger_id " + DbDialect.BoundedText(kind, 64) + " NOT NULL"
+            + ", cycle_seq INTEGER NULL"
+            + ", node " + DbDialect.BoundedText(kind, 200) + " NULL"
+            + ", kind " + DbDialect.BoundedText(kind, 16) + " NULL"
+            + ", rel_path " + DbDialect.BoundedText(kind, 400) + " NOT NULL"
+            + ", content_type " + DbDialect.BoundedText(kind, 64) + " NULL"
+            + ", width INTEGER NULL"
+            + ", height INTEGER NULL"
+            + ", size_bytes INTEGER NULL"
+            + ", batch " + DbDialect.BoundedText(kind, 128) + " NULL"
+            + ", ts " + DbDialect.TimestampColumn(kind)),
+        CreateIndexIfMissing(kind, "ix_images_trigger", "trace_images", "trigger_id"),
+        CreateIndexIfMissing(kind, "ix_images_batch", "trace_images", "batch, ts")
     ];
+
+    /// <summary>
+    /// ALTER statements upgrading an older schema in place. · 就地升级旧 schema 的 ALTER 语句。
+    /// </summary>
+    public static IReadOnlyList<string> UpgradeStatements(DbProviderKind kind, int fromVersion) =>
+        fromVersion < 2
+            ? new[]
+            {
+                $"ALTER TABLE cycle_records ADD " + DbDialect.DimensionColumn(DimensionKeys.Line)
+                    + " " + DbDialect.BoundedText(kind, 128) + " NULL",
+                $"ALTER TABLE cycle_records ADD " + DbDialect.DimensionColumn(DimensionKeys.Machine)
+                    + " " + DbDialect.BoundedText(kind, 128) + " NULL",
+                $"ALTER TABLE cycle_records ADD " + DbDialect.DimensionColumn(DimensionKeys.Shift)
+                    + " " + DbDialect.BoundedText(kind, 128) + " NULL",
+                $"ALTER TABLE cycle_records ADD " + DbDialect.DimensionColumn(DimensionKeys.Model)
+                    + " " + DbDialect.BoundedText(kind, 128) + " NULL",
+                $"ALTER TABLE cycle_records ADD " + DbDialect.DimensionColumn(DimensionKeys.Recipe)
+                    + " " + DbDialect.BoundedText(kind, 128) + " NULL"
+            }
+            : [];
+
+    private static string DimensionColumns(DbProviderKind kind) =>
+        ", " + DbDialect.DimensionColumn(DimensionKeys.Line) + " " + DbDialect.BoundedText(kind, 128) + " NULL"
+        + ", " + DbDialect.DimensionColumn(DimensionKeys.Machine) + " " + DbDialect.BoundedText(kind, 128) + " NULL"
+        + ", " + DbDialect.DimensionColumn(DimensionKeys.Shift) + " " + DbDialect.BoundedText(kind, 128) + " NULL"
+        + ", " + DbDialect.DimensionColumn(DimensionKeys.Model) + " " + DbDialect.BoundedText(kind, 128) + " NULL"
+        + ", " + DbDialect.DimensionColumn(DimensionKeys.Recipe) + " " + DbDialect.BoundedText(kind, 128) + " NULL";
 
     private static string CreateTableIfMissing(DbProviderKind kind, string table, string columns) => kind switch
     {

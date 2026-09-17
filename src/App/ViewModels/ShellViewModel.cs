@@ -46,6 +46,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly ModbusTcpSimulator _commSim;
     private readonly MotionRuntime _motion;
     private readonly DataRuntime _data;
+    private readonly StatsService _stats;
+    private readonly ImageArchiveStore _images;
+    private readonly PreviewRing _preview;
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -73,6 +76,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Shared data runtime with a SQLite trace source registered (§8). · 共享数据运行时(已注册 SQLite 追溯数据源)</summary>
     public IDataRuntime Data => _data;
+
+    /// <summary>Yield / throughput stats over the trace source (§9.5.4). · 追溯数据源上的良率/产量统计(§9.5.4)</summary>
+    public IStatsService Stats => _stats;
+
+    /// <summary>File-backed image archive for original / rendered snapshots (§9.5.3). · 原图/渲染图文件归档(§9.5.3)</summary>
+    public IImageArchive Images => _images;
+
+    /// <summary>Bounded recent-frames ring for the result preview (§9.5.1). · 结果预览的最近帧有界环(§9.5.1)</summary>
+    public PreviewRing Preview => _preview;
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -142,8 +154,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
         _motion = BuildMotionRuntime();
         _scheduler.Services[typeof(IMotionRuntime)] = _motion;
-        _data = BuildDataRuntime();
+        (_data, _stats, _images, _preview) = BuildDataRuntime();
         _scheduler.Services[typeof(IDataRuntime)] = _data;
+        _scheduler.Services[typeof(IStatsService)] = _stats;
+        _scheduler.Services[typeof(IImageArchive)] = _images;
+        _scheduler.Services[typeof(PreviewRing)] = _preview;
         Status = _loc["status.noGraph"];
     }
 
@@ -185,12 +200,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>
     /// Builds the demo data runtime: one SQLite trace source named "trace" holding the
-    /// hot-path record store, the query store and the CSV exporter (§8, stage-8).
+    /// hot-path record store, the query store and the CSV exporter (§8, stage-8), plus the
+    /// stage-9 stats service, file-backed image archive and preview ring sharing that source.
     /// Graphs reference "trace" by name and stay provider-agnostic.
     /// / 构建演示数据运行时：名为 "trace" 的 SQLite 追溯数据源，承载热路径记录存储、查询存储与
-    ///   CSV 导出器(§8,阶段8)。图按名引用 "trace"，保持提供商无关。
+    ///   CSV 导出器(§8,阶段8)，外加共享该数据源的阶段9 统计服务、文件存图归档与预览环。
+    ///   图按名引用 "trace"，保持提供商无关。
     /// </summary>
-    private static DataRuntime BuildDataRuntime()
+    private static (DataRuntime Runtime, StatsService Stats, ImageArchiveStore Images, PreviewRing Preview) BuildDataRuntime()
     {
         var dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HalconWorkflow");
@@ -200,9 +217,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var storage = new SqlStorage(config);
         storage.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
         var runtime = new DataRuntime();
-        runtime.Add("trace", records: storage, query: storage,
-            export: new CsvExporter(new DbConnectionFactory(config), DbProviderKind.Sqlite));
-        return runtime;
+        var factory = new DbConnectionFactory(config);
+        runtime.Add("trace", records: storage, query: storage, export: new CsvExporter(factory, DbProviderKind.Sqlite));
+        var stats = new StatsService(factory, DbProviderKind.Sqlite);
+        var images = new ImageArchiveStore(factory, DbProviderKind.Sqlite, Path.Combine(dir, "trace_images"));
+        var preview = new PreviewRing();
+        return (runtime, stats, images, preview);
     }
 
     /// <summary>

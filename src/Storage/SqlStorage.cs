@@ -44,7 +44,10 @@ public sealed class SqlStorage : IRecordStore, IQueryStore, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(record);
         ct.ThrowIfCancellationRequested();
-        _queue.Enqueue(new TraceRecord(record.TriggerId, record.Node, record.Kind, record.Batch, record.ResultJson, record.ImageRef));
+        _queue.Enqueue(new TraceRecord(record.TriggerId, record.Node, record.Kind, record.Batch, record.ResultJson, record.ImageRef)
+        {
+            Dimensions = record.Dimensions
+        });
         return Task.CompletedTask;
     }
 
