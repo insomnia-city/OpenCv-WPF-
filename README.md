@@ -177,6 +177,18 @@
 - 全解决方案：**200 项单测全绿**（36 Core + 11 Runtime + 39 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（编辑/看板/审计 三 Tab + 角色下拉与「撤回到保存点」渲染 + 已注册 SQLite 追溯源与阶段9 统计/存图/预览/审计服务）
 
+**阶段 10（原生计算内核：vx_* C ABI + 体素/点云计算回退）已落地**：
+- `native/vx_voxel/` — 无依赖 C++17 参考内核：`vx_abi.h`（`VxVoxelParams`/`VxStatus`/导出声明）、`vx_voxel.cpp`（哈希体素质心下采样 + 网格 k 近邻 Jacobi 最小特征向量法线，每 8192 点轮询 `volatile int* cancel`）、`CMakeLists.txt`（`add_library(vx_voxel SHARED)`）、构建/落位 `README.md`；产物 `vx_voxel.dll`/`.so`/`.dylib`
+- `src/Native/VxAbi.cs` — 托管接缝：`VxStatus`、`VoxelGridSpec`（默认 1cm/4M 上限）、`VoxelDownsampleResult`/`NormalEstimateResult`、`IVxFunctionTable`（`ReadOnlySpan<float>`/`Span<float>` + `ref int cancel`，低拷贝）
+- `src/Native/NativeKernelLibrary.cs` — **进程级装载唯一来源**（ADR-006/§6.3）：静态缓存 + `NativeLibrary.TryLoad`，缺失只报告不抛出；`NativeKernelLoadScope`（`Process` vs 禁用 `AssemblyLoadContext`）、`NativeKernelMissingException`
+- `src/Native/VxNativeFunctionTable.cs` — 经 `NativeLibrary.GetExport` + `Marshal.GetDelegateForFunctionPointer` 绑定（**不用 DllImport**，遵循唯一进程句柄）；`Dispose` **刻意不卸载**；`TryBind(0)`/缺导出返回 null 供无异常回退
+- `src/Native/NativeVoxelKernel.cs`/`ManagedPointCloudKernel.cs`/`PointCloudKernelFactory.cs` — `IPointCloudKernel` 契约（`Backend`/`IsNative`/`VoxelDownsampleAsync`/`EstimateNormalsAsync`）；原生实现 `CancellationToken` 注册翻转 cancel 标志、`BufferTooSmall` 扩容重试一次、`Cancelled`→`OperationCanceledException`；托管回退同契约（"仅更慢但正确"，分块 `ThrowIfCancellationRequested`）；工厂 `Probe()` 显式报告回退原因
+- `src/Native/PointCloudKernelPool.cs` — 借出/归还/取消池，语义与 `HalconEnginePool` 一致（§6.3）：`SemaphoreSlim` 上限并行度、空闲队列复用、**取消借出不占槽位不泄漏**、租约 `Dispose` 幂等
+- 阶段闸门（§13.1 第 10 行）：**native 装载单测**（缺库显式回退 + `kernel32`/`libc` 进程级幂等 + `TryBind(0)==null`）+ **取消热路径断言**（`Cancelled` 状态→OCE、预取消绝不触达 API）+ **与 `HalconEnginePool` 同语义**（复用/上限/取消不占槽）
+- `src/Native.Tests/` — 30 项：`NativeKernelTests`（15：缺库显式/系统库进程级/TryBind(0)/Probe/Create 回退/ABI 映射/扩容重试/取消热路径/预取消不触达/错误码→异常/非三元组）、`ManagedKernelTests`（12：同格质心/分格/上限/分块完成/预取消/非法输入/Z 对齐法线/退化/空/校验）、`PointCloudKernelPoolTests`（6：复用/上限/取消不占槽/工厂失败归还槽/租约幂等/释放空闲内核）——**尚无 `vx_voxel.dll` 时全部走托管回退仍全绿**
+- 全解决方案：**230 项单测全绿**（36 Core + 11 Runtime + 39 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
 > 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
