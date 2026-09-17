@@ -327,6 +327,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
     {
         ["en"] = En,
         ["zh-Hans"] = ZhHans,
+        ["zh"] = ZhHans,   // two-letter alias: zh-CN / zh-Hant still resolve Chinese · 双字母别名：zh-CN / zh-Hant 仍解析中文
         ["ko"] = Ko
     };
 

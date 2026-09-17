@@ -17,6 +17,14 @@ public interface IDialogService
 
     /// <summary>Shows a blocking error box. · 显示阻塞式错误框</summary>
     void ReportError(string message);
+
+    /// <summary>
+    /// Blocking yes/no confirmation; true means proceed. Keeps VMs free of WPF MessageBox calls
+    /// so destructive flows (new/load) stay testable (§9.2).
+    /// / 阻塞式确认；true 表示继续。使 VM 不直接调用 WPF MessageBox，
+    ///   让破坏性流程(新建/载入)保持可测(§9.2)。
+    /// </summary>
+    bool Confirm(string message);
 }
 
 /// <summary>
@@ -47,6 +55,9 @@ public sealed class WindowsDialogService : IDialogService
     }
 
     public void ReportError(string message) => System.Windows.MessageBox.Show(message, "Halcon Workflow", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+
+    public bool Confirm(string message) => System.Windows.MessageBox.Show(message, "Halcon Workflow",
+        System.Windows.MessageBoxButton.OKCancel, System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.OK;
 }
 
 /// <summary>

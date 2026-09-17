@@ -835,10 +835,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private bool ConfirmDiscard()
     {
         if (_currentPath is null && Editor.Nodes.Count == 0) return true;
-        var r = System.Windows.MessageBox.Show(
-            "Discard current graph?", "Halcon Workflow",
-            System.Windows.MessageBoxButton.OKCancel, System.Windows.MessageBoxImage.Warning);
-        return r == System.Windows.MessageBoxResult.OK;
+        return _dialogs.Confirm("Discard current graph?");
     }
 
     private void Post(Action action)

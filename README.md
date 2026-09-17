@@ -189,6 +189,15 @@
 - 全解决方案：**230 项单测全绿**（36 Core + 11 Runtime + 39 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
 
-> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
+**阶段 11（应用层收口：§9 全层 · §9.5 四能力 · 三语）已落地**：
+- 全局撤回收口（§9.2）— 画布删除经 `MainEditorViewModel.RemoveAsyncHandler` 接入壳层唯一 `UndoService`；`ShellViewModel.ConfirmDiscard` 改用 `IDialogService.Confirm`（VM 不再直接调 WPF `MessageBox`，破坏性流程可测）；新建/载入清空全局栈、保存锚定保存点
+- 权限/审计收口（§9.3）— 只读角色的编辑与运行尝试均被拒并落 `operation_records`（`access.denied` + 动作对象 + 用户）
+- 本地化收口（§4.8/ADR-010）— `LocalizationService` 增 `zh` 双字母别名（`zh-CN`/`zh-Hant` 仍解析中文）；中/英/韩三语词条数完全对齐（95 键），未知语言回退英文、缺键回显键名，永不空白
+- 双语注释收口（§4.9）— `src/Runtime/Program.cs` 补齐英中双语注释，生产源码 100% 含中文注释
+- 阶段闸门（§13.1 第 11 行）：`src/App.Tests/Stage11GateTests.cs` — 6 项：**全局 `UndoService` 覆盖全应用**（调色板添加+属性面板改参+画布删除同栈逆序回滚、新建/载入清空栈）、**权限拒绝落表**、**三语词条完整 + 回退链**、**双语注释全量抽查**
+- 全解决方案：**236 项单测全绿**（36 Core + 11 Runtime + 45 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+> 下一步（发布就绪 / 现场试点循环）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
