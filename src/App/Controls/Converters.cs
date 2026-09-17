@@ -1,7 +1,9 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using HalconWorkflow.App.ViewModels;
 using HalconWorkflow.Core.Model;
 
@@ -98,6 +100,29 @@ public sealed class PortKindToBrushConverter : IValueConverter
         => value is bool isExec && isExec
             ? new SolidColorBrush(Color.FromRgb(0xFF, 0xD5, 0x4F))
             : new SolidColorBrush(Color.FromRgb(0x4F, 0xC3, 0xF7));
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
+/// Renders raw image bytes into a frozen BitmapImage for the result-preview panel (§9.5.1).
+/// · 将原始图像字节渲染为冻结的 BitmapImage，供结果预览面板使用(§9.5.1)
+/// </summary>
+public sealed class BytesToImageConverter : IValueConverter
+{
+    public object? Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is not byte[] { Length: > 0 } bytes) return null;
+        var image = new BitmapImage();
+        using var stream = new MemoryStream(bytes);
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.StreamSource = stream;
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
 
     public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
         => throw new NotSupportedException();

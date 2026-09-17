@@ -343,6 +343,7 @@ public class ShellViewModelTests : IDisposable
     {
         public string? OpenGraphFile(string filter) => null;
         public string? SaveGraphFile(string defaultName, string filter) => null;
+        public string? SaveCsvFile(string defaultName) => null;
         public void ReportError(string message) { }
     }
 }

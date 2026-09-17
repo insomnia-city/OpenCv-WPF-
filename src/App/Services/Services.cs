@@ -12,6 +12,9 @@ public interface IDialogService
     /// <summary>Asks where to save the graph; null when cancelled. · 选择保存路径;取消返回 null</summary>
     string? SaveGraphFile(string defaultName, string filter);
 
+    /// <summary>Asks where to save a CSV export; null when cancelled. · 选择 CSV 导出路径;取消返回 null</summary>
+    string? SaveCsvFile(string defaultName);
+
     /// <summary>Shows a blocking error box. · 显示阻塞式错误框</summary>
     void ReportError(string message);
 }
@@ -30,6 +33,16 @@ public sealed class WindowsDialogService : IDialogService
     public string? SaveGraphFile(string defaultName, string filter)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog { Filter = filter, FileName = defaultName };
+        return dlg.ShowDialog() == true ? dlg.FileName : null;
+    }
+
+    public string? SaveCsvFile(string defaultName)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "CSV (*.csv)|*.csv|All files (*.*)|*.*",
+            FileName = defaultName
+        };
         return dlg.ShowDialog() == true ? dlg.FileName : null;
     }
 

@@ -41,6 +41,18 @@ public sealed class PreviewRing
     public PreviewFrame? Latest(string node) =>
         _rings.TryGetValue(node, out var ring) ? ring.Snapshot(1).FirstOrDefault() : null;
 
+    /// <summary>Most recent frame across all nodes, or null. · 全节点最近一帧，无则 null</summary>
+    public PreviewFrame? Latest()
+    {
+        PreviewFrame? best = null;
+        foreach (var ring in _rings.Values)
+        {
+            var candidate = ring.Snapshot(1).FirstOrDefault();
+            if (candidate is not null && (best is null || candidate.CapturedAt > best.CapturedAt)) best = candidate;
+        }
+        return best;
+    }
+
     /// <summary>Most recent frames for a node, newest first. · 节点最近若干帧，新→旧</summary>
     public IReadOnlyList<PreviewFrame> Recent(string node, int count) =>
         _rings.TryGetValue(node, out var ring) ? ring.Snapshot(count) : [];

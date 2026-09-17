@@ -86,6 +86,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Bounded recent-frames ring for the result preview (§9.5.1). · 结果预览的最近帧有界环(§9.5.1)</summary>
     public PreviewRing Preview => _preview;
 
+    /// <summary>Trace board + yield dashboard + result preview (§9.4/§9.5.1/§9.5.4). · 追溯看板 + 良率看板 + 结果预览</summary>
+    public DashboardViewModel Dashboard { get; }
+
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
 
@@ -123,6 +126,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string PaletteTitle => _loc["palette.title"];
     public string StatusReady => _loc["status.ready"];
     public string PropertiesTitle => _loc["property.title"];
+    public string TabEditor => _loc["tab.editor"];
+    public string TabDashboard => _loc["tab.dashboard"];
 
     /// <summary>Whether the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
@@ -159,6 +164,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(IStatsService)] = _stats;
         _scheduler.Services[typeof(IImageArchive)] = _images;
         _scheduler.Services[typeof(PreviewRing)] = _preview;
+        Dashboard = new DashboardViewModel(_loc, _stats, _preview, LoadTraceRowsAsync);
+        Dashboard.ExportRequested += OnDashboardExport;
         Status = _loc["status.noGraph"];
     }
 
@@ -551,7 +558,67 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Log.Add(result.Success ? "info" : "error",
                 $"Run finished: success={result.Success} ok={result.SucceededNodes} failed={result.FaultedNodes} ({result.Duration.TotalMilliseconds:F0}ms)");
             Status = result.Success ? _loc["status.ready"] : "Faulted";
+            _ = Dashboard.RefreshCommand.ExecuteAsync(null);
         });
+    }
+
+    /// <summary>Projects the newest trace rows from the single "trace" source for the board (§9.4). · 为看板从唯一 "trace" 源投影最新追溯行</summary>
+    private async Task<IReadOnlyList<TraceRow>> LoadTraceRowsAsync(CancellationToken ct)
+    {
+        var store = _data.ResolveQueryStore("trace");
+        if (store is null) return [];
+        var rows = await store.QueryRowsAsync(DashboardViewModel.BoardSql, null, ct).ConfigureAwait(false);
+        return rows.Select(row => new TraceRow(
+            ToLong(row, "Seq"),
+            ToText(row, "TriggerId") ?? "",
+            ToText(row, "Batch"),
+            ToText(row, "Node"),
+            ToText(row, "Kind"),
+            ToText(row, "Ts"))).ToList();
+    }
+
+    private static object? Cell(IReadOnlyDictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var value) ? value : null;
+
+    private static string? ToText(IReadOnlyDictionary<string, object?> row, string key)
+    {
+        var value = Cell(row, key);
+        return value is null or DBNull ? null : value as string ?? value.ToString();
+    }
+
+    private static long ToLong(IReadOnlyDictionary<string, object?> row, string key)
+        => Cell(row, key) is { } value ? Convert.ToInt64(value, CultureInfo.InvariantCulture) : 0;
+
+    /// <summary>Opens a destination and streams the board query to CSV through the host exporter (§9.5.2). · 选择目标并经宿主导出器把看板查询流式导出为 CSV</summary>
+    private void OnDashboardExport(CsvExportRequest request)
+    {
+        var export = _data.ResolveExportService("trace");
+        if (export is null)
+        {
+            _dialogs.ReportError("No export service registered for 'trace'.");
+            return;
+        }
+        var path = _dialogs.SaveCsvFile($"trace-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+        if (path is null) return;
+        _ = ExportAsync(export, request, path);
+    }
+
+    private async Task ExportAsync(IExportService export, CsvExportRequest request, string path)
+    {
+        try
+        {
+            await using var stream = File.Create(path);
+            var count = await export.ExportCsvAsync(request, stream, CancellationToken.None).ConfigureAwait(false);
+            Post(() => Log.Add("info", $"Exported {count} rows to {path}"));
+        }
+        catch (Exception ex)
+        {
+            Post(() =>
+            {
+                _dialogs.ReportError(ex.Message);
+                Log.Add("error", $"Export failed: {ex.Message}");
+            });
+        }
     }
 
     private static NodeState MapPhase(NodeExecutionPhase p) => p switch
