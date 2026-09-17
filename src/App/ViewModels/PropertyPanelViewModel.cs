@@ -1,9 +1,8 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.Core.Contracts;
-using HalconWorkflow.Nodes.Vision.Components;
-using HalconWorkflow.Nodes.Vision.Nodes;
 
 namespace HalconWorkflow.App.ViewModels;
 

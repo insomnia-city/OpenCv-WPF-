@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Data;
-using HalconWorkflow.Nodes.Vision.Components;
+using HalconWorkflow.Abstractions.Parameters;
 
 namespace HalconWorkflow.App.Controls;
 

@@ -1,9 +1,11 @@
-namespace HalconWorkflow.Nodes.Vision.Components;
+namespace HalconWorkflow.Abstractions.Parameters;
 
 /// <summary>
-/// Declares a node parameter on a strongly-typed view-model property (§4.4/§6.2).
-/// Drives the reflected property panel; units and ranges are advisory metadata.
-/// / 在强类型 VM 属性上声明一个节点参数（§4.4/§6.2）。驱动反射属性面板;单位与范围是元数据约束
+/// Declares a node parameter on a strongly-typed view-model property (§4.4).
+/// Shared by every node plugin (vision / comm / motion / data). Drives the reflected
+/// property panel; units and ranges are advisory metadata.
+/// / 在强类型 VM 属性上声明一个节点参数（§4.4）。各节点插件(视觉/通讯/运动/数据)共用。
+///   驱动反射属性面板;单位与范围是元数据约束
 /// </summary>
 [AttributeUsage(AttributeTargets.Property, AllowMultiple = false, Inherited = true)]
 public sealed class NodeParameterAttribute : Attribute
@@ -61,4 +63,17 @@ public sealed class ParameterMetadata
     public IReadOnlyList<string>? Options { get; init; }
     public object? Value { get; init; }
     internal System.Reflection.PropertyInfo? Source { get; init; }
+}
+
+/// <summary>
+/// A node that exposes a strongly-typed parameter object for the reflected property
+/// panel (§4.4). Implemented by vision and comm nodes alike.
+/// / 暴露反射属性面板可用的强类型参数对象的节点（§4.4）。视觉与通讯节点一致实现。
+/// </summary>
+public interface IParameterized
+{
+    /// <summary>
+    /// Parameter object carrying [NodeParameter]-decorated properties. · 携带 [NodeParameter] 特性的参数对象
+    /// </summary>
+    object ParameterObject { get; }
 }

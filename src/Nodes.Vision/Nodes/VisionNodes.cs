@@ -1,7 +1,7 @@
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Types;
-using HalconWorkflow.Nodes.Vision.Components;
 using HalconWorkflow.Nodes.Vision.Engines;
 using HalconWorkflow.Nodes.Vision.Imaging;
 

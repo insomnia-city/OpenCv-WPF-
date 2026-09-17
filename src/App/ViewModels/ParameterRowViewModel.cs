@@ -1,6 +1,6 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
-using HalconWorkflow.Nodes.Vision.Components;
+using HalconWorkflow.Abstractions.Parameters;
 
 namespace HalconWorkflow.App.ViewModels;
 

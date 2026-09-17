@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace HalconWorkflow.Nodes.Vision.Components;
+namespace HalconWorkflow.Abstractions.Parameters;
 
 /// <summary>
 /// Reads <see cref="NodeParameterAttribute"/>-decorated properties off a strongly
@@ -11,6 +11,9 @@ namespace HalconWorkflow.Nodes.Vision.Components;
 /// </summary>
 public static class ParameterReflection
 {
+    /// <summary>
+    /// Projects decorated properties into parameter rows (name/group/range/kind). · 将带特性的属性投影为参数行
+    /// </summary>
     public static IReadOnlyList<ParameterMetadata> Summarize(object instance)
     {
         ArgumentNullException.ThrowIfNull(instance);

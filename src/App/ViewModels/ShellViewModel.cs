@@ -4,17 +4,21 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HalconWorkflow.Abstractions;
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.Abstractions.Undo;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Execution;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
+using HalconWorkflow.Nodes.Comm;
 using HalconWorkflow.Nodes.Flow;
 using HalconWorkflow.Nodes.Vision;
 using HalconWorkflow.Nodes.Vision.Commands;
 using HalconWorkflow.Nodes.Vision.Engines;
 using HalconWorkflow.Nodes.Vision.Nodes;
+using HalconWorkflow.Protocols;
+using HalconWorkflow.Protocols.Modbus;
 using HalconWorkflow.Runtime.Nodes;
 
 namespace HalconWorkflow.App.ViewModels;
@@ -23,7 +27,7 @@ namespace HalconWorkflow.App.ViewModels;
 /// Shell coordinator: node library, document commands and run/stop wiring. All bindings are projections, never kernel entities. 
 /// 壳层协调器：节点库、文档命令与运行/停止接线。绑定只使用投影，绝不使用内核实体
 /// </summary>
-public sealed partial class ShellViewModel : ObservableObject
+public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 {
     internal const string GraphFilter = "Halcon Graph (*.graph.json)|*.graph.json|All files (*.*)|*.*";
 
@@ -34,6 +38,8 @@ public sealed partial class ShellViewModel : ObservableObject
     private readonly UndoService _undo = new();
     private readonly VisionEnginePool _visionPool = new(
         () => VisionEngineFactory.CreateResolved(forcePhantom: true), capacity: 2);
+    private readonly CommRuntime _comm;
+    private readonly ModbusTcpSimulator _commSim;
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -52,6 +58,9 @@ public sealed partial class ShellViewModel : ObservableObject
 
     /// <summary>Property panel for the selected node (§4.4). · 选中节点的属性面板(§4.4)</summary>
     public PropertyPanelViewModel PropertyPanel { get; }
+
+    /// <summary>Shared comm runtime with the demo loopback device registered (§7). · 共享通讯运行时(已注册演示回环设备)</summary>
+    public ICommRuntime Comm => _comm;
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -117,12 +126,46 @@ public sealed partial class ShellViewModel : ObservableObject
         _scheduler.NodeExecuted += OnNodeEvent;
         _scheduler.RunCompleted += OnRunCompleted;
         _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
+        (_comm, _commSim) = BuildCommRuntime();
+        _scheduler.Services[typeof(ICommRuntime)] = _comm;
         Status = _loc["status.noGraph"];
+    }
+
+    /// <summary>
+    /// Builds a demo comm runtime hosting a loopback Modbus device (§7, stage-6).
+    /// The graph stays adapter-agnostic: swapping this for a real PLC only changes here.
+    /// / 构建演示通讯运行时，承载回环 Modbus 设备(§7,阶段6)。图保持适配器无关：
+    ///   换成真实 PLC 只需改动此处。
+    /// </summary>
+    private static (CommRuntime Runtime, ModbusTcpSimulator Sim) BuildCommRuntime()
+    {
+        var tags = new TagTable();
+        tags.Register(new TagTableEntry("demo/holding/speed", "demo", "holding:0", typeof(ushort), true, true));
+        tags.Register(new TagTableEntry("demo/holding/count", "demo", "holding:1", typeof(ushort), true, true));
+        tags.Register(new TagTableEntry("demo/coil/run", "demo", "coil:0", typeof(bool), true, true));
+        tags.Register(new TagTableEntry("demo/input/temp", "demo", "input:0", typeof(ushort), true, false));
+        tags.Register(new TagTableEntry("demo/discrete/ready", "demo", "discrete:0", typeof(bool), true, false));
+        var sim = ModbusTcpSimulator.Start();
+        var runtime = new CommRuntime(tags);
+        runtime.Add(new ModbusTcpConnection("demo", "127.0.0.1", sim.Port, 1, tags));
+        return (runtime, sim);
+    }
+
+    /// <summary>
+    /// Disposes the shared comm runtime and the loopback simulator on app exit.
+    /// / 退出时释放共享通讯运行时与回环模拟器。
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await _comm.DisposeAsync().ConfigureAwait(false);
+        await _commSim.DisposeAsync().ConfigureAwait(false);
+        await _visionPool.DisposeAsync().ConfigureAwait(false);
     }
 
     private void BuildPalette()
     {
         var vision = new VisionNodeFactory();
+        var comm = new CommNodeFactory();
         Palette.Clear();
         Palette.Add(new NodeCatalogItem("start", _loc["palette.start"], "test.start:1", id => SampleNodes.Start(id)));
         Palette.Add(new NodeCatalogItem("grabber", _loc["palette.grabber"], "vision.grab:1", id => vision.Create(new NodeContract("vision.grab", 1), id)!));
@@ -138,6 +181,9 @@ public sealed partial class ShellViewModel : ObservableObject
         Palette.Add(new NodeCatalogItem("hdev", _loc["palette.hdev"], "vision.hdev:1", id => vision.Create(new NodeContract("vision.hdev", 1), id)!));
         Palette.Add(new NodeCatalogItem("tomat", _loc["palette.tomat"], "vision.tomat:1", id => vision.Create(new NodeContract("vision.tomat", 1), id)!));
         Palette.Add(new NodeCatalogItem("tohobject", _loc["palette.tohobject"], "vision.tohobject:1", id => vision.Create(new NodeContract("vision.tohobject", 1), id)!));
+        Palette.Add(new NodeCatalogItem("read", _loc["palette.read"], "comm.read:1", id => comm.Create(new NodeContract("comm.read", 1), id)!));
+        Palette.Add(new NodeCatalogItem("write", _loc["palette.write"], "comm.write:1", id => comm.Create(new NodeContract("comm.write", 1), id)!));
+        Palette.Add(new NodeCatalogItem("wait", _loc["palette.wait"], "comm.wait:1", id => comm.Create(new NodeContract("comm.wait", 1), id)!));
     }
 
     /// <summary>Adds a palette node as an undoable graph edit at a cascading location. · 以可撤销图编辑在级联坐标添加调色板节点</summary>
@@ -307,7 +353,7 @@ public sealed partial class ShellViewModel : ObservableObject
         {
             var graph = GraphJsonSerializer.Deserialize(
                 File.ReadAllText(path),
-                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory()));
+                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory()));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();

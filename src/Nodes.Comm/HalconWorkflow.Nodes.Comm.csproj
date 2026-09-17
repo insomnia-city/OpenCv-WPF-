@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>HalconWorkflow.Nodes.Comm</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="HalconWorkflow.Nodes.Comm.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Abstractions\HalconWorkflow.Abstractions.csproj" />
+    <ProjectReference Include="..\Core\HalconWorkflow.Core.csproj" />
+  </ItemGroup>
+
+</Project>

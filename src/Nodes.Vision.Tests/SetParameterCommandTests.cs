@@ -1,4 +1,5 @@
 using HalconWorkflow.Abstractions;
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.Abstractions.Undo;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Nodes.Vision.Commands;

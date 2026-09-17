@@ -1,19 +1,10 @@
 using HalconWorkflow.Abstractions;
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Nodes.Vision.Engines;
 
 namespace HalconWorkflow.Nodes.Vision.Nodes;
-
-/// <summary>
-/// Marks a node exposing a strongly-typed parameter object for the reflected panel (§4.4/§6.2). 
-/// / 标注节点对外暴露强类型参数对象，供反射属性面板使用（§4.4/§6.2）
-/// </summary>
-public interface IParameterized
-{
-    /// <summary>Strongly-typed parameter object (properties carry NodeParameter). / 强类型参数对象（属性带 NodeParameter 特性）</summary>
-    object ParameterObject { get; }
-}
 
 /// <summary>
 /// Shared INode implementation for vision nodes: declarative ports + engine-backed

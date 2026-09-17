@@ -1,6 +1,5 @@
 using HalconWorkflow.Abstractions;
-using HalconWorkflow.Nodes.Vision.Components;
-using HalconWorkflow.Nodes.Vision.Nodes;
+using HalconWorkflow.Abstractions.Parameters;
 
 namespace HalconWorkflow.Nodes.Vision.Commands;
 

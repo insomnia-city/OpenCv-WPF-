@@ -11,6 +11,8 @@ namespace HalconWorkflow.App;
 /// </summary>
 public partial class App : Application
 {
+    private ShellViewModel? _shell;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -18,13 +20,24 @@ public partial class App : Application
         var loc = AppServices.Localization;
         loc.Culture = new System.Globalization.CultureInfo("zh-Hans");
 
-        var shell = new ShellViewModel(loc, new WindowsDialogService());
-        var window = new MainWindow { DataContext = shell };
+        _shell = new ShellViewModel(loc, new WindowsDialogService());
+        var window = new MainWindow { DataContext = _shell };
         window.Show();
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        if (_shell is not null)
+        {
+            try
+            {
+                _shell.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2));
+            }
+            catch
+            {
+                // best-effort teardown on exit · 退出时尽力释放
+            }
+        }
         base.OnExit(e);
     }
 }

@@ -20,6 +20,8 @@
     <ProjectReference Include="..\Runtime\HalconWorkflow.Runtime.csproj" />
     <ProjectReference Include="..\Nodes.Flow\HalconWorkflow.Nodes.Flow.csproj" />
     <ProjectReference Include="..\Nodes.Vision\HalconWorkflow.Nodes.Vision.csproj" />
+    <ProjectReference Include="..\Nodes.Comm\HalconWorkflow.Nodes.Comm.csproj" />
+    <ProjectReference Include="..\Protocols\HalconWorkflow.Protocols.csproj" />
   </ItemGroup>
 
 </Project>

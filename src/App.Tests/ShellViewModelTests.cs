@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Reflection;
 using System.Windows;
+using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.App.ViewModels;
 using HalconWorkflow.Core.Contracts;
@@ -17,16 +18,27 @@ namespace HalconWorkflow.App.Tests;
 /// Stage-3 acceptance: editors reflect graphs, bindings hit projections only, and localization hot-switches. 
 /// 阶段3 验收：编辑器镜像图、绑定只指投影、本地化热切换
 /// </summary>
-public class ShellViewModelTests
+public class ShellViewModelTests : IDisposable
 {
-    private static ShellViewModel CreateShell()
-        => new(new LocalizationService(), new NoopDialogService());
+    private readonly List<ShellViewModel> _shells = [];
+
+    private ShellViewModel CreateShell()
+    {
+        var shell = new ShellViewModel(new LocalizationService(), new NoopDialogService());
+        _shells.Add(shell);
+        return shell;
+    }
+
+    public void Dispose()
+    {
+        foreach (var shell in _shells) shell.DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(2));
+    }
 
     [Fact]
     public void Localization_HotSwitch_ChangesTitlesAndFallsBack()
     {
-        var loc = new LocalizationService();
-        var shell = new ShellViewModel(loc, new NoopDialogService());
+        var shell = CreateShell();
+        var loc = shell.Loc;
 
         loc.Culture = new System.Globalization.CultureInfo("zh-Hans");
         Assert.Equal("运行", shell.MenuRun);
@@ -110,13 +122,34 @@ public class ShellViewModelTests
     public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(14, shell.Palette.Count);
+        Assert.Equal(17, shell.Palette.Count);
         var grab = shell.Palette.First(p => p.Key == "grabber");
         Assert.Equal("vision.grab:1", grab.Contract);
         shell.AddNodeCommand.Execute(grab);
         Assert.Single(shell.Editor.Nodes);
         Assert.True(shell.Editor.Nodes[0].Id.StartsWith("grabber", StringComparison.Ordinal));
         Assert.True(shell.Editor.Graph.Nodes.Values.Any(g => g.Contract.Namespace == "vision.grab"));
+    }
+
+    /// <summary>
+    /// Stage-6 acceptance: the comm palette spawns adapter-agnostic comm nodes, and the
+    /// shell registers a comm runtime with the demo loopback device and its tag table.
+    /// / 阶段6 验收：通讯调色板生成适配器无关的通讯节点，且壳层注册了带演示回环设备与 Tag 表的通讯运行时。
+    /// </summary>
+    [Fact]
+    public void CommPalette_SpawnsCommNodes_WithRuntimeAndTagsRegistered()
+    {
+        var shell = CreateShell();
+        var read = shell.Palette.First(p => p.Key == "read");
+        Assert.Equal("comm.read:1", read.Contract);
+
+        shell.AddNodeCommand.Execute(read);
+        var kernel = shell.Editor.Graph.Nodes.Values.Single();
+        Assert.Equal("comm.read", kernel.Contract.Namespace);
+        Assert.True(kernel.Node is IParameterized);
+
+        Assert.NotNull(shell.Comm.Resolve("demo"));
+        Assert.NotNull(shell.Comm.Tags.Resolve("demo/holding/speed"));
     }
 
     [Fact]

@@ -106,6 +106,21 @@
 - App 接线：调色板 grabber/threshold 换成真实 vision 节点并新增 measure/hdev/tomat/tohobject（中/英/韩本地化 + 契约族配色）；`CombinedNodeFactory` 混入 `VisionNodeFactory`（threshold 按版本分流）；调度器注册 `IVisionEnginePool`；右栏新增**属性面板**（选中节点 → `NodeParameter` 反射行，失焦提交经撤销服务，Undo/Redo 按命令分类重建/刷新）
 - 全解决方案：**101 项单测全绿**（36 Core + 11 Runtime + 9 App + 17 Nodes.Flow + 28 Nodes.Vision）
 
+**阶段 6（通讯层 Protocols + Nodes.Comm）已落地**：
+- `src/Protocols/` — 协议层（引 Abstractions）：`TagTable`（线程安全 Tag 表，§7.1）+ `Modbus/`（**纯 .NET MBAP 组帧，无第三方 Modbus 栈**）
+  - `Modbus/ModbusFrame.cs` — MBAP 组帧器 + `ModbusException` + 区/地址解析（`coil:N` / `holding:N` / `discrete:N` / `input:N`）
+  - `Modbus/ModbusTcpConnection.cs` — 客户端适配器（实现 `IDeviceConnection`：`SemaphoreSlim` 请求串行化 + 取消 + `Subscribe` 轮询）
+  - `Modbus/ModbusTcpSimulator.cs` — 进程内回环从站（真实 MBAP 帧服务线圈/离散输入/保持/输入寄存器；供测试与 App 演示）
+- `src/Nodes.Comm/` — 通讯节点库（引 Core + Abstractions）：`ICommRuntime`/`CommRuntime`（按设备ID解析连接 + 共享 Tag 表，注册为调度器服务）
+  - `Nodes/CommNodes.cs` — 一等公民通讯节点：`comm.read:1` / `comm.write:1`（Value 端口或静态值）/ `comm.wait:1`（轮询至期望值，可反相）；强类型参数对象经 `[NodeParameter]` 反射进属性面板
+  - `Nodes/CommNodeFactory.cs` — 按契约名（ns+版本）反序列化
+- 阶段闸门（§13.1 第 614 行）：**协议无关 Tag 表 I/O 单测**（TagTable 解析/登记/枚举 + Modbus 帧往返）+ **换协议不动图**断言（ADR-004：适配器替换后图 JSON 字节不变，同一 `comm.*` 契约跨适配器执行结果一致）
+- App 接线：引 Nodes.Comm+Protocols；`ShellViewModel` 构建**演示回环 Modbus 设备**并注册 `ICommRuntime` 调度器服务（换真实 PLC 只改此处）；调色板新增 3 个通讯节点（中/英/韩本地化 + 配色）；`CombinedNodeFactory` 混入 `CommNodeFactory`；退出经 `IAsyncDisposable` 释放运行时与模拟器
+- `src/Protocols.Tests/` — 11 项：Tag 表 5 + Modbus TCP 往返 5 + 匹配 1
+- `src/Nodes.Comm.Tests/` — 9 项：工厂/参数反射 + **图内读写往返** + **换协议不动图**（2 项）+ 直接往返
+- 全解决方案：**122 项单测全绿**（36 Core + 11 Runtime + 10 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备）
+
 > 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、数据面板、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
