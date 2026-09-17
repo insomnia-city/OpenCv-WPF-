@@ -229,6 +229,29 @@ public class ShellViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Stage9_Audit_RecordsOperationsOverIndependentStore()
+    {
+        var shell = CreateShell();
+        var marker = "test-" + Guid.NewGuid().ToString("N");
+        shell.RecordAudit(AuditActions.SaveGraph, marker, after: "{\"nodes\":1}");
+
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        IReadOnlyList<OperationRecord> rows = [];
+        while (DateTime.UtcNow < deadline)
+        {
+            rows = await shell.AuditStore.QueryAsync(new AuditFilter(TargetContains: marker), CancellationToken.None);
+            if (rows.Count > 0) break;
+            await Task.Delay(50);
+        }
+
+        var row = Assert.Single(rows);
+        Assert.True(row.Id > 0);
+        Assert.Equal(shell.CurrentUser, row.User);
+        Assert.Equal(AuditActions.SaveGraph, row.Action);
+        Assert.Equal("{\"nodes\":1}", row.After);
+    }
+
+    [Fact]
     public void VisionThreshold_PaletteSpawnsV2Node()
     {
         var shell = CreateShell();

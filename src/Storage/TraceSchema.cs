@@ -23,14 +23,15 @@ public sealed record CycleRow(
 
 /// <summary>
 /// Versioned schema for the traceability tables (§8.4 / §9.5.3): DDL per provider + embedded
-/// migration. v2 adds the §9.5.4 grouping dimensions and the <c>trace_images</c> archive.
+/// migration. v2 adds the §9.5.4 grouping dimensions and the <c>trace_images</c> archive;
+/// v3 adds the §9.1 <c>operation_records</c> audit table (independent of the cycle trace).
 /// · 追溯表的分版本 schema(§8.4 / §9.5.3)：按提供商的 DDL + 内嵌迁移。v2 增加 §9.5.4 分组维度
-///   与 trace_images 归档表。
+///   与 trace_images 归档表；v3 增加 §9.1 operation_records 审计表(独立于周期追溯)。
 /// </summary>
 public static class TraceSchema
 {
     /// <summary>Current trace schema version. · 当前追溯 schema 版本</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     /// <summary>Default SELECT of all cycle columns with stable aliases. · 全列稳定别名默认查询</summary>
     public const string QueryAllSql =
@@ -108,7 +109,18 @@ public static class TraceSchema
             + ", batch " + DbDialect.BoundedText(kind, 128) + " NULL"
             + ", ts " + DbDialect.TimestampColumn(kind)),
         CreateIndexIfMissing(kind, "ix_images_trigger", "trace_images", "trigger_id"),
-        CreateIndexIfMissing(kind, "ix_images_batch", "trace_images", "batch, ts")
+        CreateIndexIfMissing(kind, "ix_images_batch", "trace_images", "batch, ts"),
+        CreateTableIfMissing(kind, "operation_records",
+            "id " + DbDialect.AutoIdColumn(kind)
+            + ", occurred_at " + DbDialect.TimestampColumn(kind)
+            + ", user_name " + DbDialect.BoundedText(kind, 64) + " NOT NULL"
+            + ", action " + DbDialect.BoundedText(kind, 64) + " NOT NULL"
+            + ", target " + DbDialect.BoundedText(kind, 400) + " NULL"
+            + ", before_json " + DbDialect.LongText(kind) + " NULL"
+            + ", after_json " + DbDialect.LongText(kind) + " NULL"
+            + ", undo_record_id INTEGER NULL"),
+        CreateIndexIfMissing(kind, "ix_audit_at", "operation_records", "occurred_at"),
+        CreateIndexIfMissing(kind, "ix_audit_user", "operation_records", "user_name, occurred_at")
     ];
 
     /// <summary>

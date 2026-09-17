@@ -157,7 +157,7 @@
 - 全解决方案：**163 项单测全绿**（36 Core + 11 Runtime + 12 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 6 Storage + 7 Nodes.Data）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备、演示运动控制器与 SQLite 追溯数据源）
 
-**阶段 9（追溯看板能力层：存图 · 良率/产量统计 · 结果预览）已落地**：
+**阶段 9（追溯看板能力层：存图 · 良率/产量统计 · 结果预览 · 操作审计）已落地**：
 - `src/Abstractions/IStorage.cs` — 阶段 9 扩展：`IRecord.Dimensions`（默认成员，无则 null）+ `TraceRecord.Dimensions` init 属性 + `DimensionKeys`(line/machine/shift/model/recipe) + `ImageKind`/`ImageArchiveRequest`/`ImageAsset`/`IImageArchive`；`IStatsService` 改签名（`SliceAsync` 返回 `IReadOnlyList<YieldSlice>` + `SummaryAsync`）
 - `src/Storage/DbDialect.cs` — 新增 `DimensionColumn`(`dim_*`)、`DateKey`(按方言日期表达式)、`LastInsertIdSql`（Postgres 走 INSERT…RETURNING，其余用 last-insert-id）
 - `src/Storage/TraceSchema.cs` — **schema v1→v2 就地迁移**：`cycle_records` 新增 5 个 `dim_*` 维度列 + `trace_images` 表（原图/渲染图归档行）+ 索引；`UpgradeStatements` 用跨库 `ALTER TABLE … ADD …`；`QueryAllSql`/`CycleRow` 带维度别名；`EnsureCreatedAsync` 幂等
@@ -167,13 +167,14 @@
 - `src/Nodes.Data/DataNodes.cs` — `data.write` 新增可选 `Dimensions` 参数（`k=v;k=v`）
 - 看板 UI（§9.4/§9.5.1/§9.5.4）— `src/App/ViewModels/DashboardViewModel.cs`（投影 VM：`TraceRow`/`YieldRow`/`DimensionOption`）经注入的 `IStatsService`/`PreviewRing`/行列加载器刷新，**不暴露任何内核实体**；主窗口加入「编辑 / 看板」双 Tab（`MainWindow.xaml`），看板含工具条（刷新/清空/导出 CSV/切片维度/时间窗）、四张汇总卡（产量/良品/不良/良率）、最近周期表、良率切片表与结果预览（`PreviewRing.Latest()` 全节点最近帧 + `BytesToImageConverter` 渲染）；`ShellViewModel` 订阅 `Dashboard.ExportRequested` 经 `IExportService` 流式落盘 CSV（§9.5.2），运行完成自动刷新看板
 - `IDialogService.SaveCsvFile` — CSV 导出目标选择接缝（VM 可测；`Dashboard.ExportRequested` 解耦文件对话框与导出服务）
-- 阶段闸门（§13.1 第 9 行）：**看板/统计/CSV 同源不另建第二份断言**（库内仅 `schema_version`/`cycle_records`/`trace_images` 三表）+ **存图归档冒烟**（落文件+落行+按 trigger 查+剪枝）
-- App 接线：注册 `IStatsService`/`IImageArchive`/`PreviewRing`（经 `ShellViewModel.Stats`/`Images`/`Preview` 暴露），并由 `Dashboard` 共享同一 "trace" SQLite 源
-- `src/Storage.Tests/Stage9GateTests.cs` — 5 项：schema v2 建表+维度列+幂等、v1→v2 迁移保行、统计同源（线别良率 100%/60%、库内仅三表）、存图落文件+按 trigger 查+剪枝、预览环有界
-- `src/Nodes.Data.Tests/` — 8 项（+1：`data.write` 维度解析）；`src/App.Tests/` — 18 项（+1：阶段9 服务同源；+5：看板刷新/维度切换/导出请求/清空/本地化热切换）
-- 全解决方案：**175 项单测全绿**（36 Core + 11 Runtime + 18 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 11 Storage + 8 Nodes.Data）
-- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（看板双 Tab 渲染 + 已注册 SQLite 追溯源与阶段9 统计/存图/预览服务）
+- 操作审计（§9.1）— `src/Storage/TraceSchema.cs` **v3**：新增独立追加表 `operation_records`（`occurred_at`/`user_name`/`action`/`target`/`before_json`/`after_json`/`undo_record_id` + 索引）；`src/Storage/AuditSql.cs`（过滤 SQL 唯一来源）+ `SqlAuditService`（`IAuditStore`：追加返回 id、按用户/时间/对象/动作过滤、剪枝）；`ShellViewModel` 在 新建/载入/保存/加节点/删节点/改参数/撤销/重做/运行/停止 时 `RecordAudit`（即发即忘，失败仅记日志），并新增「审计」Tab（`AuditViewModel`：过滤框 + 表格 + 导出），与周期追溯完全分离
+- 阶段闸门（§13.1 第 9 行）：**看板/统计/CSV 同源不另建第二份断言**（`cycle_records`/`trace_images`/`operation_records`/`schema_version` 四表，审计表不复制周期数据）+ **存图归档冒烟**（落文件+落行+按 trigger 查+剪枝）
+- App 接线：注册 `IStatsService`/`IImageArchive`/`PreviewRing`/`IAuditStore`（经 `ShellViewModel.Stats`/`Images`/`Preview`/`AuditStore` 暴露），并由 `Dashboard`/`AuditView` 共享同一 "trace" SQLite 源
+- `src/Storage.Tests/Stage9GateTests.cs` — 6 项：schema v3 建表+维度列+幂等、v1→最新迁移保行且审计表可写、统计同源（线别良率 100%/60%、库内仅四表）、存图落文件+按 trigger 查+剪枝、预览环有界、审计追加/过滤/剪枝
+- `src/Nodes.Data.Tests/` — 8 项（+1：`data.write` 维度解析）；`src/App.Tests/` — 25 项（+1：阶段9 服务同源；+5：看板刷新/维度切换/导出请求/清空/本地化热切换；+6：审计刷新/过滤转发/导出/清空/错误状态/本地化；+1：shell 审计写入独立表）
+- 全解决方案：**183 项单测全绿**（36 Core + 11 Runtime + 25 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（编辑/看板/审计 三 Tab 渲染 + 已注册 SQLite 追溯源与阶段9 统计/存图/预览/审计服务）
 
-> 下一步：操作审计视图（§9.1 `OperationRecord` 独立表 + 撤回回链）、交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
+> 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、撤回回链 UI（§9.2 撤销栈与 `undo_record_id` 贯通）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

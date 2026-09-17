@@ -320,6 +320,89 @@
                         </Grid>
                     </Grid>
                 </TabItem>
+
+                <TabItem Header="{Binding TabAudit}" Background="#FF1C242C" Foreground="#FFECEFF1">
+                    <Grid Background="#FF11151A" Margin="10">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <!-- Audit toolbar · 审计工具条 -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                            <TextBlock Text="{Binding AuditView.Title}" Foreground="#FFECEFF1" FontSize="14" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,14,0" />
+                            <Button Content="{Binding AuditView.RefreshLabel}" Command="{Binding AuditView.RefreshCommand}"
+                                    Padding="10,4" Margin="0,0,6,0" Background="#FF263238" Foreground="#FFF5F5F5" BorderThickness="0" />
+                            <Button Content="{Binding AuditView.ClearLabel}" Command="{Binding AuditView.ClearCommand}"
+                                    Padding="10,4" Margin="0,0,6,0" Background="#FF37474F" Foreground="#FFF5F5F5" BorderThickness="0" />
+                            <Button Content="{Binding AuditView.ExportLabel}" Command="{Binding AuditView.ExportCommand}"
+                                    Padding="10,4" Margin="0,0,14,0" Background="#FF2E7D32" Foreground="White" BorderThickness="0" />
+                            <TextBlock Text="{Binding AuditView.UserLabel}" Foreground="#FF90A4AE" FontSize="11"
+                                       VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBox Text="{Binding AuditView.FilterUser, UpdateSourceTrigger=PropertyChanged}" Width="90" FontSize="11"
+                                     Background="#FF263238" Foreground="#FFF5F5F5" BorderThickness="0" Padding="4,2" Margin="0,0,10,0" />
+                            <TextBlock Text="{Binding AuditView.ActionLabel}" Foreground="#FF90A4AE" FontSize="11"
+                                       VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBox Text="{Binding AuditView.FilterAction, UpdateSourceTrigger=PropertyChanged}" Width="110" FontSize="11"
+                                     Background="#FF263238" Foreground="#FFF5F5F5" BorderThickness="0" Padding="4,2" Margin="0,0,10,0" />
+                            <TextBlock Text="{Binding AuditView.TargetLabel}" Foreground="#FF90A4AE" FontSize="11"
+                                       VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBox Text="{Binding AuditView.FilterTarget, UpdateSourceTrigger=PropertyChanged}" Width="140" FontSize="11"
+                                     Background="#FF263238" Foreground="#FFF5F5F5" BorderThickness="0" Padding="4,2" Margin="0,0,10,0" />
+                            <TextBlock Text="{Binding AuditView.RangeText}" Foreground="#FF546E7A" FontSize="11"
+                                       VerticalAlignment="Center" Margin="4,0,0,0" />
+                            <TextBlock Text="{Binding AuditView.StatusText}" Foreground="#FFEF9A9A" FontSize="11"
+                                       VerticalAlignment="Center" Margin="12,0,0,0" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!-- Audit table · 审计表 -->
+                        <Border Grid.Row="1" Background="#FF141B22" BorderBrush="{StaticResource PanelBorder}"
+                                BorderThickness="1" CornerRadius="4" Padding="8">
+                            <Grid Grid.IsSharedSizeScope="True">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aAt" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aUser" />
+                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aAction" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding AuditView.ColAt}" Foreground="#FF78909C" FontSize="11" Margin="4,0,10,4" />
+                                    <TextBlock Grid.Column="1" Text="{Binding AuditView.ColUser}" Foreground="#FF78909C" FontSize="11" Margin="4,0,10,4" />
+                                    <TextBlock Grid.Column="2" Text="{Binding AuditView.ColAction}" Foreground="#FF78909C" FontSize="11" Margin="4,0,10,4" />
+                                    <TextBlock Grid.Column="3" Text="{Binding AuditView.ColTarget}" Foreground="#FF78909C" FontSize="11" Margin="4,0,10,4" />
+                                </Grid>
+                                <TextBlock Grid.Row="1" Text="{Binding AuditView.EmptyLabel}" Foreground="#FF546E7A" FontSize="11"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Visibility="{Binding AuditView.HasRows, Converter={StaticResource InverseBoolToVis}}" />
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl ItemsSource="{Binding AuditView.Rows}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aAt" />
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aUser" />
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="aAction" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Grid.Column="0" Text="{Binding At}" Foreground="#FF90A4AE" FontSize="11" Margin="4,2,10,2" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding User}" Foreground="#FFCFD8DC" FontSize="11" Margin="4,2,10,2" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding Action}" Foreground="#FF64B5F6" FontSize="11" Margin="4,2,10,2" />
+                                                    <TextBlock Grid.Column="3" Text="{Binding Target}" Foreground="#FFB0BEC5" FontSize="11" Margin="4,2,10,2" TextTrimming="CharacterEllipsis" />
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+                </TabItem>
             </TabControl>
 
             <!-- Property panel + Log · 属性面板 + 日志 -->

@@ -102,7 +102,20 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["dim.shift"] = "Shift",
         ["dim.model"] = "Model",
         ["dim.recipe"] = "Recipe",
-        ["dim.date"] = "Date"
+        ["dim.date"] = "Date",
+        ["tab.audit"] = "Audit",
+        ["audit.title"] = "Operation Audit",
+        ["audit.refresh"] = "Refresh",
+        ["audit.clear"] = "Clear",
+        ["audit.export"] = "Export CSV",
+        ["audit.user"] = "User",
+        ["audit.action"] = "Action",
+        ["audit.target"] = "Object",
+        ["audit.empty"] = "No audit entries",
+        ["audit.col.at"] = "Time",
+        ["audit.col.user"] = "User",
+        ["audit.col.action"] = "Action",
+        ["audit.col.target"] = "Object"
     };
 
     private static readonly IReadOnlyDictionary<string, string> ZhHans = new Dictionary<string, string>
@@ -181,7 +194,20 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["dim.shift"] = "班次",
         ["dim.model"] = "机型",
         ["dim.recipe"] = "Recipe",
-        ["dim.date"] = "日期"
+        ["dim.date"] = "日期",
+        ["tab.audit"] = "审计",
+        ["audit.title"] = "操作审计",
+        ["audit.refresh"] = "刷新",
+        ["audit.clear"] = "清空",
+        ["audit.export"] = "导出 CSV",
+        ["audit.user"] = "用户",
+        ["audit.action"] = "动作",
+        ["audit.target"] = "对象",
+        ["audit.empty"] = "暂无审计记录",
+        ["audit.col.at"] = "时间",
+        ["audit.col.user"] = "用户",
+        ["audit.col.action"] = "动作",
+        ["audit.col.target"] = "对象"
     };
 
     private static readonly IReadOnlyDictionary<string, string> Ko = new Dictionary<string, string>
@@ -260,7 +286,20 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["dim.shift"] = "교대",
         ["dim.model"] = "모델",
         ["dim.recipe"] = "레시피",
-        ["dim.date"] = "날짜"
+        ["dim.date"] = "날짜",
+        ["tab.audit"] = "감사",
+        ["audit.title"] = "작업 감사",
+        ["audit.refresh"] = "새로고침",
+        ["audit.clear"] = "지우기",
+        ["audit.export"] = "CSV 내보내기",
+        ["audit.user"] = "사용자",
+        ["audit.action"] = "동작",
+        ["audit.target"] = "대상",
+        ["audit.empty"] = "감사 기록 없음",
+        ["audit.col.at"] = "시간",
+        ["audit.col.user"] = "사용자",
+        ["audit.col.action"] = "동작",
+        ["audit.col.target"] = "대상"
     };
 
     private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _tables = new(StringComparer.Ordinal)

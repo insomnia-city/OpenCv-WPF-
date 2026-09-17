@@ -49,6 +49,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly StatsService _stats;
     private readonly ImageArchiveStore _images;
     private readonly PreviewRing _preview;
+    private readonly SqlAuditService _audit;
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -86,8 +87,14 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Bounded recent-frames ring for the result preview (§9.5.1). · 结果预览的最近帧有界环(§9.5.1)</summary>
     public PreviewRing Preview => _preview;
 
+    /// <summary>Append-only operation audit store, separate from the cycle trace (§9.1). · 独立于周期追溯的追加式操作审计存储(§9.1)</summary>
+    public IAuditStore AuditStore => _audit;
+
     /// <summary>Trace board + yield dashboard + result preview (§9.4/§9.5.1/§9.5.4). · 追溯看板 + 良率看板 + 结果预览</summary>
     public DashboardViewModel Dashboard { get; }
+
+    /// <summary>Operation-audit view (§9.1). · 操作审计视图(§9.1)</summary>
+    public AuditViewModel AuditView { get; }
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -128,6 +135,10 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string PropertiesTitle => _loc["property.title"];
     public string TabEditor => _loc["tab.editor"];
     public string TabDashboard => _loc["tab.dashboard"];
+    public string TabAudit => _loc["tab.audit"];
+
+    /// <summary>Operating-system user stamped onto every audit entry (§9.1). · 写入每条审计的操作系统用户(§9.1)</summary>
+    public string CurrentUser { get; } = Environment.UserName;
 
     /// <summary>Whether the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
@@ -159,13 +170,16 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
         _motion = BuildMotionRuntime();
         _scheduler.Services[typeof(IMotionRuntime)] = _motion;
-        (_data, _stats, _images, _preview) = BuildDataRuntime();
+        (_data, _stats, _images, _preview, _audit) = BuildDataRuntime();
         _scheduler.Services[typeof(IDataRuntime)] = _data;
         _scheduler.Services[typeof(IStatsService)] = _stats;
         _scheduler.Services[typeof(IImageArchive)] = _images;
         _scheduler.Services[typeof(PreviewRing)] = _preview;
+        _scheduler.Services[typeof(IAuditStore)] = _audit;
         Dashboard = new DashboardViewModel(_loc, _stats, _preview, LoadTraceRowsAsync);
         Dashboard.ExportRequested += OnDashboardExport;
+        AuditView = new AuditViewModel(_loc, _audit);
+        AuditView.ExportRequested += OnAuditExport;
         Status = _loc["status.noGraph"];
     }
 
@@ -214,7 +228,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     ///   CSV 导出器(§8,阶段8)，外加共享该数据源的阶段9 统计服务、文件存图归档与预览环。
     ///   图按名引用 "trace"，保持提供商无关。
     /// </summary>
-    private static (DataRuntime Runtime, StatsService Stats, ImageArchiveStore Images, PreviewRing Preview) BuildDataRuntime()
+    private static (DataRuntime Runtime, StatsService Stats, ImageArchiveStore Images, PreviewRing Preview, SqlAuditService Audit) BuildDataRuntime()
     {
         var dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HalconWorkflow");
@@ -229,7 +243,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var stats = new StatsService(factory, DbProviderKind.Sqlite);
         var images = new ImageArchiveStore(factory, DbProviderKind.Sqlite, Path.Combine(dir, "trace_images"));
         var preview = new PreviewRing();
-        return (runtime, stats, images, preview);
+        var audit = new SqlAuditService(factory, DbProviderKind.Sqlite);
+        return (runtime, stats, images, preview, audit);
     }
 
     /// <summary>
@@ -296,6 +311,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Editor.RebindAll();
             RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Added node {id} ({item.Contract})");
+            RecordAudit(AuditActions.AddNode, id, after: item.Contract);
         }
         catch (Exception ex)
         {
@@ -316,6 +332,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Editor.RebindAll();
             RefreshPanelAfterStructuralChange();
             Log.Add("info", $"Removed node {vm.Id}");
+            RecordAudit(AuditActions.RemoveNode, vm.Id);
         }
         catch (Exception ex)
         {
@@ -336,6 +353,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
             else RefreshPanel();
+            RecordAudit(AuditActions.Undo, structural ? "structural" : "parameter");
         }
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
@@ -351,6 +369,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             if (structural) { Editor.RebindAll(); RefreshPanelAfterStructuralChange(); }
             else RefreshPanel();
+            RecordAudit(AuditActions.Redo, structural ? "structural" : "parameter");
         }
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
@@ -409,6 +428,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             await _undo.PushAndRunAsync(new SetParameterCommand(ip, name, value), CancellationToken.None);
             RefreshPanel();
             Log.Add("info", $"param {vm.Id}.{name} = {value}");
+            RecordAudit(AuditActions.SetParameter, $"{vm.Id}.{name}", after: value?.ToString());
         }
         catch (Exception ex)
         {
@@ -432,6 +452,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         Log.Add("info", "New graph");
+        RecordAudit(AuditActions.NewGraph);
         Status = _loc["status.ready"];
     }
 
@@ -457,6 +478,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             OnPropertyChanged(nameof(CanRedo));
             _currentPath = path;
             Log.Add("info", $"Loaded {graph.Nodes.Count} nodes / {graph.Links.Count} links from {path}");
+            RecordAudit(AuditActions.LoadGraph, path);
             Status = _loc["status.ready"];
         }
         catch (Exception ex)
@@ -483,6 +505,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             _currentPath = path;
             Editor.Title = Path.GetFileName(path);
             Log.Add("info", $"Saved {Editor.Graph.Nodes.Count} nodes / {Editor.Graph.Links.Count} links to {path}");
+            RecordAudit(AuditActions.SaveGraph, path);
         }
         catch (Exception ex)
         {
@@ -507,6 +530,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(IsRunning));
         _runCts = new CancellationTokenSource();
         _scheduler.Load(Editor.Graph);
+        RecordAudit(AuditActions.Run, _currentPath);
         Post(() =>
         {
             foreach (var n in Editor.Nodes) n.State = NodeState.Idle;
@@ -527,6 +551,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _running = false;
         OnPropertyChanged(nameof(IsRunning));
         Post(() => Log.Add("warn", "Run stopped by user"));
+        RecordAudit(AuditActions.Stop, _currentPath);
         Status = _loc["status.ready"];
     }
 
@@ -618,6 +643,43 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 _dialogs.ReportError(ex.Message);
                 Log.Add("error", $"Export failed: {ex.Message}");
             });
+        }
+    }
+
+    /// <summary>Opens a destination and streams the audit query to CSV through the host exporter (§9.1/§9.5.2). · 选择目标并经宿主导出器把审计查询流式导出为 CSV</summary>
+    private void OnAuditExport(CsvExportRequest request)
+    {
+        var export = _data.ResolveExportService("trace");
+        if (export is null)
+        {
+            _dialogs.ReportError("No export service registered for 'trace'.");
+            return;
+        }
+        var path = _dialogs.SaveCsvFile($"audit-{DateTime.Now:yyyyMMdd-HHmmss}.csv");
+        if (path is null) return;
+        _ = ExportAsync(export, request, path);
+    }
+
+    /// <summary>
+    /// Stamps one operation-audit entry (§9.1). Fire-and-forget: a failing audit write is logged
+    /// but never disrupts the user's operation. · 写入一条操作审计(§9.1)。即发即忘：审计写入失败仅记日志，
+    /// 绝不打断用户操作。
+    /// </summary>
+    public void RecordAudit(string action, string? target = null, string? before = null, string? after = null)
+    {
+        var record = new OperationRecord(0, DateTimeOffset.UtcNow, CurrentUser, action, target, before, after);
+        _ = AppendAuditAsync(record);
+    }
+
+    private async Task AppendAuditAsync(OperationRecord record)
+    {
+        try
+        {
+            await _audit.RecordAsync(record, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Post(() => Log.Add("warn", $"audit failed: {ex.Message}"));
         }
     }
 

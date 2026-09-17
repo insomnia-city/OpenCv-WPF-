@@ -7,8 +7,8 @@ namespace HalconWorkflow.Storage.Tests;
 
 /// <summary>
 /// Stage-9 gate (§13.1): the board, stats and CSV read the same single trace source (no second
-/// copy), schema v2 migrates in place, image archiving round-trips files + rows, and the preview
-/// ring stays bounded. · 阶段 9 门(§13.1)：看板/统计/CSV 同读唯一追溯源(不另建第二份)、schema v2
+/// copy), schema migrates in place, image archiving round-trips files + rows, and the preview
+/// ring stays bounded. · 阶段 9 门(§13.1)：看板/统计/CSV 同读唯一追溯源(不另建第二份)、schema
 /// 就地迁移、存图落文件+落行往返、预览环保持有界。
 /// </summary>
 public class Stage9GateTests
@@ -45,7 +45,7 @@ public class Stage9GateTests
     }
 
     [Fact]
-    public async Task Schema_V2_HasDimensionColumnsAndImagesTable_AndIsIdempotent()
+    public async Task Schema_V3_HasDimensionsImagesAndAuditTables_AndIsIdempotent()
     {
         var path = TempDbPath();
         try
@@ -60,7 +60,7 @@ public class Stage9GateTests
 
             var tables = await ReadStringsAsync(conn,
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-            Assert.Equal(new[] { "cycle_records", "schema_version", "trace_images" }, tables);
+            Assert.Equal(new[] { "cycle_records", "operation_records", "schema_version", "trace_images" }, tables);
 
             var columns = await ReadStringsAsync(conn, "SELECT name FROM pragma_table_info('cycle_records')");
             foreach (var dimension in new[] { "line", "machine", "shift", "model", "recipe" })
@@ -73,7 +73,7 @@ public class Stage9GateTests
     }
 
     [Fact]
-    public async Task Schema_MigratesV1_ToV2_PreservingRows()
+    public async Task Schema_MigratesV1_ToLatest_PreservingRows_AndAddsAudit()
     {
         var path = TempDbPath();
         try
@@ -98,12 +98,18 @@ public class Stage9GateTests
             await storage.FlushAsync(CancellationToken.None);
 
             await using var migrateCheck = await OpenAsync(config);
-            Assert.Equal(2, await TraceSchema.GetVersionAsync(migrateCheck, CancellationToken.None));
+            Assert.Equal(TraceSchema.Version, await TraceSchema.GetVersionAsync(migrateCheck, CancellationToken.None));
 
             var rows = await storage.ReadAllAsync(CancellationToken.None);
             Assert.Equal(2, rows.Count);
             Assert.Equal("legacy", rows[0].TriggerId);
             Assert.Equal("L1", rows[1].Line);
+
+            // The audit table arrives with the migration and is immediately writable. · 迁移同时带来审计表且立即可写
+            var audit = new SqlAuditService(new DbConnectionFactory(config), DbProviderKind.Sqlite);
+            var id = await audit.RecordAsync(
+                new OperationRecord(0, DateTimeOffset.UtcNow, "u1", AuditActions.LoadGraph, "legacy.hflow"), CancellationToken.None);
+            Assert.True(id > 0);
         }
         finally
         {
@@ -154,11 +160,12 @@ public class Stage9GateTests
             Assert.Equal(60d, l2.YieldPercent, 3); // 3 ok + 2 ng · 3 良 + 2 不良
 
             // Both the board and stats read one and the same cycle_records table — no second copy.
-            // · 看板与统计同读同一 cycle_records 表——无第二份。
+            // The audit table is intentionally separate (§9.1); it never duplicates cycle data.
+            // · 看板与统计同读同一 cycle_records 表——无第二份。审计表按 §9.1 独立，绝不复制周期数据。
             await using var conn = await OpenAsync(config);
             var tables = await ReadStringsAsync(conn,
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
-            Assert.Equal(new[] { "cycle_records", "schema_version", "trace_images" }, tables);
+            Assert.Equal(new[] { "cycle_records", "operation_records", "schema_version", "trace_images" }, tables);
             var board = await storage.ReadAllAsync(CancellationToken.None);
             Assert.Equal(summary.Cycles, board.Count);
         }
@@ -240,5 +247,57 @@ public class Stage9GateTests
         ring.Clear();
         Assert.Null(ring.Latest(node));
         Assert.Empty(ring.Nodes);
+    }
+
+    [Fact]
+    public async Task Audit_RecordsQueriesFilters_AndPrunes()
+    {
+        var path = TempDbPath();
+        try
+        {
+            var config = Sqlite(path);
+            await using var storage = new SqlStorage(config);
+            await storage.InitializeAsync(CancellationToken.None);
+
+            var audit = new SqlAuditService(new DbConnectionFactory(config), DbProviderKind.Sqlite);
+            var baseAt = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+            await audit.RecordAsync(new OperationRecord(0, baseAt, "alice", AuditActions.SaveGraph, "a.hflow"), CancellationToken.None);
+            var paramId = await audit.RecordAsync(new OperationRecord(0, baseAt.AddMinutes(1), "bob",
+                AuditActions.SetParameter, "vision.inspect:2.threshold", "0.5", "0.7"), CancellationToken.None);
+            await audit.RecordAsync(new OperationRecord(0, baseAt.AddMinutes(2), "alice",
+                AuditActions.Run, "graph"), CancellationToken.None);
+
+            var all = await audit.QueryAsync(new AuditFilter(), CancellationToken.None);
+            Assert.Equal(3, all.Count);
+            Assert.Equal(3, all[0].Id); // newest first · 倒序
+            Assert.Equal(AuditActions.Run, all[0].Action);
+
+            var byUser = await audit.QueryAsync(new AuditFilter(User: "alice"), CancellationToken.None);
+            Assert.Equal(2, byUser.Count);
+            Assert.All(byUser, r => Assert.Equal("alice", r.User));
+
+            var byAction = await audit.QueryAsync(new AuditFilter(Action: AuditActions.Run), CancellationToken.None);
+            Assert.Equal("graph", Assert.Single(byAction).Target);
+
+            var byTarget = await audit.QueryAsync(new AuditFilter(TargetContains: "vision.inspect"), CancellationToken.None);
+            var param = Assert.Single(byTarget);
+            Assert.Equal(paramId, param.Id);
+            Assert.Equal("0.5", param.Before);
+            Assert.Equal("0.7", param.After);
+
+            var windowed = await audit.QueryAsync(
+                new AuditFilter(From: baseAt.AddSeconds(30), To: baseAt.AddMinutes(3)), CancellationToken.None);
+            Assert.Equal(2, windowed.Count);
+
+            var limited = await audit.QueryAsync(new AuditFilter(Limit: 1), CancellationToken.None);
+            Assert.Equal(3, Assert.Single(limited).Id);
+
+            Assert.Equal(3, await audit.PruneAsync(baseAt.AddHours(1), CancellationToken.None));
+            Assert.Empty(await audit.QueryAsync(new AuditFilter(), CancellationToken.None));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

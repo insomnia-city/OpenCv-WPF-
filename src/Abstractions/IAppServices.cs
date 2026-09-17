@@ -9,21 +9,65 @@ public readonly record struct OperationRecord(
     DateTimeOffset At,
     string User,
     string Action,          // action code: contract.action · 动作码
-    string? Target,         // project/node/recipe reference · 对象引用
-    string? Before,         // before-change JSON snapshot · 变更前快照
-    string? After,          // after-change JSON snapshot · 变更后快照
-    long? UndoRecordId);    // back-link marker set when undone · 撤回回链标记
+    string? Target = null,  // project/node/recipe reference · 对象引用
+    string? Before = null,  // before-change JSON snapshot · 变更前快照
+    string? After = null,   // after-change JSON snapshot · 变更后快照
+    long? UndoRecordId = null); // back-link marker set when undone · 撤回回链标记
 
 /// <summary>
-/// Audit writer used by the app layer; persists to the Storage adapter (§9.1). 
-/// 应用层审计写入器;持久化到 Storage 适配器(§9.1)
+/// Filter for audit queries (§9.1 UI: by user / time / object). 
+/// 审计查询过滤(§9.1 界面：按用户/时间/对象)
+/// </summary>
+public sealed record AuditFilter(
+    DateTimeOffset? From = null,
+    DateTimeOffset? To = null,
+    string? User = null,
+    string? Action = null,
+    string? TargetContains = null,
+    int Limit = 500);
+
+/// <summary>
+/// Well-known audit action codes (§9.1): graph lifecycle, editing, parameters, run control. 
+/// 常用审计动作码(§9.1)：图生命周期、编辑、参数、运行控制
+/// </summary>
+public static class AuditActions
+{
+    public const string NewGraph = "graph.new";
+    public const string LoadGraph = "graph.load";
+    public const string SaveGraph = "graph.save";
+    public const string AddNode = "node.add";
+    public const string RemoveNode = "node.remove";
+    public const string Connect = "link.connect";
+    public const string Disconnect = "link.disconnect";
+    public const string SetParameter = "param.set";
+    public const string Undo = "edit.undo";
+    public const string Redo = "edit.redo";
+    public const string Run = "run.start";
+    public const string Stop = "run.stop";
+}
+
+/// <summary>
+/// Audit writer/reader used by the app layer; persists to the Storage adapter (§9.1) as an
+/// append-only table separate from Serilog and the cycle trace. 
+/// 应用层审计读写器;持久化到 Storage 适配器(§9.1),独立于 Serilog 与周期追溯的追加表
 /// </summary>
 public interface IAuditStore
 {
     /// <summary>
-    /// Records one operation (or a denied attempt). · 记录一条操作(或一次被拒绝的尝试)
+    /// Records one operation (or a denied attempt); returns the new record id (for undo back-links).
+    /// · 记录一条操作(或一次被拒绝的尝试);返回新记录 id(供撤回回链)
     /// </summary>
-    Task RecordAsync(OperationRecord op, CancellationToken ct);
+    Task<long> RecordAsync(OperationRecord op, CancellationToken ct);
+
+    /// <summary>
+    /// Queries audit entries newest-first under the filter. · 按过滤条件倒序查询审计条目
+    /// </summary>
+    Task<IReadOnlyList<OperationRecord>> QueryAsync(AuditFilter filter, CancellationToken ct);
+
+    /// <summary>
+    /// Prunes entries older than the cutoff; returns removed count. · 剪枝早于阈值的条目;返回删除数
+    /// </summary>
+    Task<int> PruneAsync(DateTimeOffset olderThan, CancellationToken ct);
 }
 
 /// <summary>
