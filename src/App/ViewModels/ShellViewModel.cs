@@ -13,6 +13,8 @@ using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
 using HalconWorkflow.Nodes.Comm;
 using HalconWorkflow.Nodes.Flow;
+using HalconWorkflow.Nodes.Motion;
+using HalconWorkflow.MotionDrivers;
 using HalconWorkflow.Nodes.Vision;
 using HalconWorkflow.Nodes.Vision.Commands;
 using HalconWorkflow.Nodes.Vision.Engines;
@@ -40,6 +42,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         () => VisionEngineFactory.CreateResolved(forcePhantom: true), capacity: 2);
     private readonly CommRuntime _comm;
     private readonly ModbusTcpSimulator _commSim;
+    private readonly MotionRuntime _motion;
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -61,6 +64,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Shared comm runtime with the demo loopback device registered (§7). · 共享通讯运行时(已注册演示回环设备)</summary>
     public ICommRuntime Comm => _comm;
+
+    /// <summary>Shared motion runtime with a demo controller registered (§7). · 共享运动运行时(已注册演示控制器)</summary>
+    public IMotionRuntime Motion => _motion;
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -128,6 +134,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
         (_comm, _commSim) = BuildCommRuntime();
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
+        _motion = BuildMotionRuntime();
+        _scheduler.Services[typeof(IMotionRuntime)] = _motion;
         Status = _loc["status.noGraph"];
     }
 
@@ -152,6 +160,22 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// Builds a demo motion runtime. The Googol driver is probed first; when the native SDK
+    /// is absent the deterministic phantom controller is engaged (§6.3). Registered under
+    /// both "demo" and "{vendor}:{card}" so graphs may reference either.
+    /// / 构建演示运动运行时。先探测 Googol 驱动；原生 SDK 缺失时启用确定性幻影控制器(§6.3)。
+    ///   同时以 "demo" 与 "{厂商}:{卡号}" 登记，图可引用任一。
+    /// </summary>
+    private static MotionRuntime BuildMotionRuntime()
+    {
+        var runtime = new MotionRuntime();
+        var controller = MotionDriverFactory.Create("googol", 0);
+        runtime.Add("demo", controller);
+        runtime.Add(controller);
+        return runtime;
+    }
+
+    /// <summary>
     /// Disposes the shared comm runtime and the loopback simulator on app exit.
     /// / 退出时释放共享通讯运行时与回环模拟器。
     /// </summary>
@@ -159,6 +183,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         await _comm.DisposeAsync().ConfigureAwait(false);
         await _commSim.DisposeAsync().ConfigureAwait(false);
+        await _motion.DisposeAsync().ConfigureAwait(false);
         await _visionPool.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -166,6 +191,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         var vision = new VisionNodeFactory();
         var comm = new CommNodeFactory();
+        var motion = new MotionNodeFactory();
         Palette.Clear();
         Palette.Add(new NodeCatalogItem("start", _loc["palette.start"], "test.start:1", id => SampleNodes.Start(id)));
         Palette.Add(new NodeCatalogItem("grabber", _loc["palette.grabber"], "vision.grab:1", id => vision.Create(new NodeContract("vision.grab", 1), id)!));
@@ -184,6 +210,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Palette.Add(new NodeCatalogItem("read", _loc["palette.read"], "comm.read:1", id => comm.Create(new NodeContract("comm.read", 1), id)!));
         Palette.Add(new NodeCatalogItem("write", _loc["palette.write"], "comm.write:1", id => comm.Create(new NodeContract("comm.write", 1), id)!));
         Palette.Add(new NodeCatalogItem("wait", _loc["palette.wait"], "comm.wait:1", id => comm.Create(new NodeContract("comm.wait", 1), id)!));
+        Palette.Add(new NodeCatalogItem("home", _loc["palette.home"], "motion.home:1", id => motion.Create(new NodeContract("motion.home", 1), id)!));
+        Palette.Add(new NodeCatalogItem("moveAbs", _loc["palette.moveAbs"], "motion.moveAbs:1", id => motion.Create(new NodeContract("motion.moveAbs", 1), id)!));
+        Palette.Add(new NodeCatalogItem("moveRel", _loc["palette.moveRel"], "motion.moveRel:1", id => motion.Create(new NodeContract("motion.moveRel", 1), id)!));
+        Palette.Add(new NodeCatalogItem("line", _loc["palette.line"], "motion.line:1", id => motion.Create(new NodeContract("motion.line", 1), id)!));
+        Palette.Add(new NodeCatalogItem("waitInPos", _loc["palette.waitInPos"], "motion.waitInPos:1", id => motion.Create(new NodeContract("motion.waitInPos", 1), id)!));
+        Palette.Add(new NodeCatalogItem("dout", _loc["palette.dout"], "motion.dout:1", id => motion.Create(new NodeContract("motion.dout", 1), id)!));
     }
 
     /// <summary>Adds a palette node as an undoable graph edit at a cascading location. · 以可撤销图编辑在级联坐标添加调色板节点</summary>
@@ -353,7 +385,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             var graph = GraphJsonSerializer.Deserialize(
                 File.ReadAllText(path),
-                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory()));
+                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory()));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();

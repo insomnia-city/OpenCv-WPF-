@@ -22,6 +22,8 @@
     <ProjectReference Include="..\Nodes.Vision\HalconWorkflow.Nodes.Vision.csproj" />
     <ProjectReference Include="..\Nodes.Comm\HalconWorkflow.Nodes.Comm.csproj" />
     <ProjectReference Include="..\Protocols\HalconWorkflow.Protocols.csproj" />
+    <ProjectReference Include="..\MotionDrivers\HalconWorkflow.MotionDrivers.csproj" />
+    <ProjectReference Include="..\Nodes.Motion\HalconWorkflow.Nodes.Motion.csproj" />
   </ItemGroup>
 
 </Project>

@@ -121,6 +121,24 @@
 - 全解决方案：**122 项单测全绿**（36 Core + 11 Runtime + 10 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备）
 
+**阶段 7（运动控制 MotionDrivers + Nodes.Motion）已落地**：
+- `src/MotionDrivers/` — 运动驱动层（引 Abstractions）
+  - `Native/NativeMotionLibrary.cs` — **进程级原生库解析器**（`NativeLoadScope.Process`，绝不挂 ALC；缺失返回 `IsMissing`+显式消息）
+  - `Native/MotionAbi.cs` — `INativeMotionApi` 接缝 + `DllImportMotionApi`（gmotion C ABI）
+  - `PhantomMotionController.cs` — 确定性纯 .NET **软件回退**（§6.3；CommandLog/StopLog/HoldInPosition 便于测试）
+  - `NativeMotionController.cs` — 原生控制器（public 探测 ctor 缺失即抛 `NativeLibraryMissingException`；internal 注入接缝供测试）
+  - `MotionDriverFactory.cs` — 厂商探测/创建（googol/zmotion/leadshine/adlink；缺失/未知→phantom 回退 + 提示）
+- `src/Nodes.Motion/` — 运动节点库（引 Core + Abstractions）：`IMotionRuntime`/`MotionRuntime`（按名解析控制器，注册为调度器服务）
+  - `Nodes/MotionNodes.cs` — 6 个节点：`motion.home:1` / `motion.moveAbs:1`（可选 "Pos" 输入）/ `motion.moveRel:1`（"Dist"）/ `motion.line:1`（多轴**单命令插补**，§7.5 头号正确性规则）/ `motion.waitInPos:1`（可取消/超时，发布 "Position"）/ `motion.dout:1`
+  - `MotionUnits.cs` — 工程单位↔原生计数换算 + CSV 解析；`Nodes/MotionNodeBase.cs` — 基类 + 故障**减速停车回滚**
+  - `Nodes/MotionNodeFactory.cs` — 按契约名（ns+版本）反序列化
+- 阶段闸门（§13.1）：**P/Invoke + 进程级装载规则单测**（同路径同句柄、缺失显式）+ **native 缺失软件回退冒烟**（§6.3）+ 图内 home→moveAbs(scale)→waitInPos→dout 往返、单位换算、故障回滚、waitInPos 超时/取消
+- App 接线：引 MotionDrivers+Nodes.Motion；`ShellViewModel` 经 `MotionDriverFactory` 建演示控制器（googol 探测→phantom 回退）并注册 `IMotionRuntime`（"demo" 与 "{厂商}:{卡号}"）；调色板新增 6 个运动节点（中/英/韩本地化）；`CombinedNodeFactory` 混入 `MotionNodeFactory`
+- `src/MotionDrivers.Tests/` — 13 项：原生装载规则/缺失回退/注入 API 语义映射 + phantom 行为
+- `src/Nodes.Motion.Tests/` — 13 项：工厂/参数反射 + 图内运动往返/单位缩放/单命令插补/线性长度校验/超时/回滚/JSON 往返 + 单位换算
+- 全解决方案：**149 项单测全绿**（36 Core + 11 Runtime + 11 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备与演示运动控制器）
+
 > 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、数据面板、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

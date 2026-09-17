@@ -122,7 +122,7 @@ public class ShellViewModelTests : IDisposable
     public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(17, shell.Palette.Count);
+        Assert.Equal(23, shell.Palette.Count);
         var grab = shell.Palette.First(p => p.Key == "grabber");
         Assert.Equal("vision.grab:1", grab.Contract);
         shell.AddNodeCommand.Execute(grab);
@@ -150,6 +150,27 @@ public class ShellViewModelTests : IDisposable
 
         Assert.NotNull(shell.Comm.Resolve("demo"));
         Assert.NotNull(shell.Comm.Tags.Resolve("demo/holding/speed"));
+    }
+
+    /// <summary>
+    /// Stage-7 acceptance: the motion palette spawns motion nodes, and the shell registers a
+    /// motion runtime whose demo controller resolves (§6.3 phantom fallback when no SDK).
+    /// / 阶段7 验收：运动调色板生成运动节点，且壳层注册的运动运行时演示控制器可解析
+    ///   （无 SDK 时为 §6.3 幻影回退）。
+    /// </summary>
+    [Fact]
+    public void MotionPalette_SpawnsMotionNodes_WithRuntimeRegistered()
+    {
+        var shell = CreateShell();
+        var move = shell.Palette.First(p => p.Key == "moveAbs");
+        Assert.Equal("motion.moveAbs:1", move.Contract);
+
+        shell.AddNodeCommand.Execute(move);
+        var kernel = shell.Editor.Graph.Nodes.Values.Single();
+        Assert.Equal("motion.moveAbs", kernel.Contract.Namespace);
+        Assert.True(kernel.Node is IParameterized);
+
+        Assert.NotNull(shell.Motion.Resolve("demo"));
     }
 
     [Fact]
