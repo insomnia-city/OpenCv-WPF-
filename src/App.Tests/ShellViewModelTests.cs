@@ -122,7 +122,7 @@ public class ShellViewModelTests : IDisposable
     public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(23, shell.Palette.Count);
+        Assert.Equal(25, shell.Palette.Count);
         var grab = shell.Palette.First(p => p.Key == "grabber");
         Assert.Equal("vision.grab:1", grab.Contract);
         shell.AddNodeCommand.Execute(grab);
@@ -171,6 +171,29 @@ public class ShellViewModelTests : IDisposable
         Assert.True(kernel.Node is IParameterized);
 
         Assert.NotNull(shell.Motion.Resolve("demo"));
+    }
+
+    /// <summary>
+    /// Stage-8 acceptance: the data palette spawns DB nodes, and the shell registers a data
+    /// runtime whose "trace" SQLite source resolves record/query/export stores (§8.5).
+    /// / 阶段8 验收：数据调色板生成 DB 节点，且壳层注册的数据运行时其 "trace" SQLite
+    ///   数据源可解析记录/查询/导出存储(§8.5)。
+    /// </summary>
+    [Fact]
+    public void DataPalette_SpawnsDataNodes_WithStoreRegistered()
+    {
+        var shell = CreateShell();
+        var write = shell.Palette.First(p => p.Key == "dataWrite");
+        Assert.Equal("data.write:1", write.Contract);
+
+        shell.AddNodeCommand.Execute(write);
+        var kernel = shell.Editor.Graph.Nodes.Values.Single();
+        Assert.Equal("data.write", kernel.Contract.Namespace);
+        Assert.True(kernel.Node is IParameterized);
+
+        Assert.NotNull(shell.Data.ResolveRecordStore("trace"));
+        Assert.NotNull(shell.Data.ResolveQueryStore("trace"));
+        Assert.NotNull(shell.Data.ResolveExportService("trace"));
     }
 
     [Fact]

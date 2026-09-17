@@ -38,6 +38,17 @@ public interface IRecord
 }
 
 /// <summary>
+/// Default mutable-free traceability record. · 默认的不可变追溯记录
+/// </summary>
+public sealed record TraceRecord(
+    string TriggerId,
+    string Node,
+    string Kind,
+    string? Batch = null,
+    string? ResultJson = null,
+    string? ImageRef = null) : IRecord;
+
+/// <summary>
 /// Hot-path traceability writer: enqueue and return immediately, never block a cycle (§8.3). 
 /// 热路径追溯写入：只入队立即返回,绝不阻塞周期(§8.3)
 /// </summary>
@@ -64,6 +75,49 @@ public interface IQueryStore : IAsyncDisposable
     /// Runs a non-query command. · 执行非查询命令
     /// </summary>
     Task<int> ExecuteAsync(string sql, object? p, CancellationToken ct);
+
+    /// <summary>
+    /// Runs a parameterized query returning rows as column→value maps (column order preserved).
+    /// Implementations that cannot return arbitrary rows may leave the default (throws).
+    /// · 执行参数化查询并以"列→值"映射返回行(保留列序)。无法返回任意行的实现可沿用默认(抛异常)。
+    /// </summary>
+    Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryRowsAsync(string sql, object? p, CancellationToken ct)
+        => throw new NotSupportedException($"{GetType().Name} does not support QueryRowsAsync");
+}
+
+/// <summary>CSV text encoding (§9.5.2). · CSV 文本编码(§9.5.2)</summary>
+public enum CsvEncoding
+{
+    /// <summary>UTF-8 with BOM so Excel double-click opens cleanly. · UTF-8 带 BOM，Excel 双击即开</summary>
+    Utf8Bom,
+
+    /// <summary>GBK (code page 936) for legacy Excel/machines. · GBK(代码页 936)，兼容老 Excel/老机器</summary>
+    Gbk
+}
+
+/// <summary>
+/// One CSV export request. Export is streamed page-by-page and cancelable (§9.5.2).
+/// · 一次 CSV 导出请求。导出流式分页且可取消(§9.5.2)
+/// </summary>
+public sealed record CsvExportRequest(
+    string Sql,
+    object? Parameters = null,
+    int PageSize = 1000,
+    CsvEncoding Encoding = CsvEncoding.Utf8Bom,
+    IReadOnlyList<string>? Columns = null,
+    Action<long>? OnProgress = null);
+
+/// <summary>
+/// Host-side export service (§9.5.2): trace query / stats / audit all export through here.
+/// · 宿主侧导出服务(§9.5.2)：追溯查询/统计/审计统一经此导出
+/// </summary>
+public interface IExportService
+{
+    /// <summary>
+    /// Streams a query to CSV, returning the row count. Cancels promptly (per page and per row).
+    /// · 将查询流式导出为 CSV 并返回行数。可及时取消(每页与每行)。
+    /// </summary>
+    Task<long> ExportCsvAsync(CsvExportRequest request, Stream output, CancellationToken ct);
 }
 
 /// <summary>

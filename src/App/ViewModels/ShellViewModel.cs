@@ -12,6 +12,7 @@ using HalconWorkflow.Core.Execution;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
 using HalconWorkflow.Nodes.Comm;
+using HalconWorkflow.Nodes.Data;
 using HalconWorkflow.Nodes.Flow;
 using HalconWorkflow.Nodes.Motion;
 using HalconWorkflow.MotionDrivers;
@@ -22,6 +23,7 @@ using HalconWorkflow.Nodes.Vision.Nodes;
 using HalconWorkflow.Protocols;
 using HalconWorkflow.Protocols.Modbus;
 using HalconWorkflow.Runtime.Nodes;
+using HalconWorkflow.Storage;
 
 namespace HalconWorkflow.App.ViewModels;
 
@@ -43,6 +45,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly CommRuntime _comm;
     private readonly ModbusTcpSimulator _commSim;
     private readonly MotionRuntime _motion;
+    private readonly DataRuntime _data;
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
     private bool _running;
@@ -67,6 +70,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Shared motion runtime with a demo controller registered (§7). · 共享运动运行时(已注册演示控制器)</summary>
     public IMotionRuntime Motion => _motion;
+
+    /// <summary>Shared data runtime with a SQLite trace source registered (§8). · 共享数据运行时(已注册 SQLite 追溯数据源)</summary>
+    public IDataRuntime Data => _data;
 
     /// <summary>Node library palette. · 节点库</summary>
     public ObservableCollection<NodeCatalogItem> Palette { get; } = [];
@@ -136,6 +142,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
         _motion = BuildMotionRuntime();
         _scheduler.Services[typeof(IMotionRuntime)] = _motion;
+        _data = BuildDataRuntime();
+        _scheduler.Services[typeof(IDataRuntime)] = _data;
         Status = _loc["status.noGraph"];
     }
 
@@ -176,6 +184,28 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// Builds the demo data runtime: one SQLite trace source named "trace" holding the
+    /// hot-path record store, the query store and the CSV exporter (§8, stage-8).
+    /// Graphs reference "trace" by name and stay provider-agnostic.
+    /// / 构建演示数据运行时：名为 "trace" 的 SQLite 追溯数据源，承载热路径记录存储、查询存储与
+    ///   CSV 导出器(§8,阶段8)。图按名引用 "trace"，保持提供商无关。
+    /// </summary>
+    private static DataRuntime BuildDataRuntime()
+    {
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HalconWorkflow");
+        Directory.CreateDirectory(dir);
+        var config = new DbConfig("trace", DbProviderKind.Sqlite,
+            $"Data Source={Path.Combine(dir, "trace.db")};Pooling=False");
+        var storage = new SqlStorage(config);
+        storage.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
+        var runtime = new DataRuntime();
+        runtime.Add("trace", records: storage, query: storage,
+            export: new CsvExporter(new DbConnectionFactory(config), DbProviderKind.Sqlite));
+        return runtime;
+    }
+
+    /// <summary>
     /// Disposes the shared comm runtime and the loopback simulator on app exit.
     /// / 退出时释放共享通讯运行时与回环模拟器。
     /// </summary>
@@ -184,6 +214,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         await _comm.DisposeAsync().ConfigureAwait(false);
         await _commSim.DisposeAsync().ConfigureAwait(false);
         await _motion.DisposeAsync().ConfigureAwait(false);
+        await _data.DisposeAsync().ConfigureAwait(false);
         await _visionPool.DisposeAsync().ConfigureAwait(false);
     }
 
@@ -192,6 +223,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var vision = new VisionNodeFactory();
         var comm = new CommNodeFactory();
         var motion = new MotionNodeFactory();
+        var data = new DataNodeFactory();
         Palette.Clear();
         Palette.Add(new NodeCatalogItem("start", _loc["palette.start"], "test.start:1", id => SampleNodes.Start(id)));
         Palette.Add(new NodeCatalogItem("grabber", _loc["palette.grabber"], "vision.grab:1", id => vision.Create(new NodeContract("vision.grab", 1), id)!));
@@ -216,6 +248,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Palette.Add(new NodeCatalogItem("line", _loc["palette.line"], "motion.line:1", id => motion.Create(new NodeContract("motion.line", 1), id)!));
         Palette.Add(new NodeCatalogItem("waitInPos", _loc["palette.waitInPos"], "motion.waitInPos:1", id => motion.Create(new NodeContract("motion.waitInPos", 1), id)!));
         Palette.Add(new NodeCatalogItem("dout", _loc["palette.dout"], "motion.dout:1", id => motion.Create(new NodeContract("motion.dout", 1), id)!));
+        Palette.Add(new NodeCatalogItem("dataWrite", _loc["palette.dataWrite"], "data.write:1", id => data.Create(new NodeContract("data.write", 1), id)!));
+        Palette.Add(new NodeCatalogItem("dataQuery", _loc["palette.dataQuery"], "data.query:1", id => data.Create(new NodeContract("data.query", 1), id)!));
     }
 
     /// <summary>Adds a palette node as an undoable graph edit at a cascading location. · 以可撤销图编辑在级联坐标添加调色板节点</summary>
@@ -385,7 +419,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             var graph = GraphJsonSerializer.Deserialize(
                 File.ReadAllText(path),
-                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory()));
+                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory(), new DataNodeFactory()));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();

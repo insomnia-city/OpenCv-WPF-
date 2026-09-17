@@ -139,6 +139,24 @@
 - 全解决方案：**149 项单测全绿**（36 Core + 11 Runtime + 11 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备与演示运动控制器）
 
+**阶段 8（数据存储 Storage + Nodes.Data）已落地**：
+- `src/Storage/` — 存储适配器（引 Abstractions；Dapper 2.1.35 + Microsoft.Data.Sqlite 9.0.0）
+  - `DbDialect.cs` — `DbProviderKind`(Sqlite/SqlServer/MySql/Postgres) + `DbConfig` + `IDbConnectionFactory`/`DbConnectionFactory` + 方言（连接创建/invariant 名/自增列/长文本/时间戳列/`ApplyPaging`）
+  - `TraceSchema.cs` — `CycleRow` + 版本化 schema（`schema_version` 表 + 按方言 DDL 的**幂等迁移**，§8.4）
+  - `TraceWriteQueue.cs` — 热路径批量队列（§8.3：`Enqueue` 只入锁内环形队列并立即返回、**绝不反压 Execution**；后台泵 100ms/500 条先到为准聚合；**溢出丢最旧 + `DroppedAlarm`**；批失败受限重试后弃批 + `BatchFailed`；`FlushAsync` 排空）
+  - `SqlTraceSink.cs` — 单事务 Dapper 批量插入 `cycle_records`；`SqlStorage.cs` — `IRecordStore`+`IQueryStore` 适配器（`InitializeAsync`/`AppendAsync`/`FlushAsync`/`ReadAllAsync`/`QueryAsync<T>`/`ExecuteAsync`/`QueryRowsAsync`）
+  - `CsvExporter.cs` — `IExportService` 流式分页 CSV（§9.5.2：默认 UTF-8 带 BOM、可选 GBK；按页查逐行写、不整表进内存；每页每行可取消 + `OnProgress`）
+- `src/Abstractions/IStorage.cs` — 阶段 8 扩展：`TraceRecord`、`IQueryStore.QueryRowsAsync`（默认方法，未实现即抛）、`CsvEncoding`/`CsvExportRequest`/`IExportService`（既有 `IRecord`/`IRecordStore`/`IQueryStore` 复用，勿重复定义）
+- `src/Nodes.Data/` — 数据节点库（引 Core + Abstractions）：`IDataRuntime`/`DataRuntime`（按名解析记录/查询/导出存储；`ReferenceEqualityComparer` 避免同一存储重复释放）
+  - `Nodes/DataNodes.cs` — 一等公民 DB 节点：`data.write:1`（热路径入队即返回）/ `data.query:1`（异步可取消读取，发布 "Result"/"Rows"）；强类型参数对象经 `[NodeParameter]` 反射进属性面板
+  - `DataNodeFactory.cs` — 按契约名（ns+版本）反序列化（`data.trigger` 预留未实现）
+- 阶段闸门（§13.1 第 8 行）：**批量写不阻塞 Execution 断言** + **追溯查询可取消** + **CSV 流式分页可取消冒烟** + SQLite 真库往返
+- App 接线：引 Storage+Nodes.Data；`ShellViewModel` 建 SQLite "trace" 数据源（`%LOCALAPPDATA%\HalconWorkflow\trace.db`）并注册 `IDataRuntime`；调色板新增 2 个数据节点（中/英/韩本地化）；`CombinedNodeFactory` 混入 `DataNodeFactory`；退出经 `IAsyncDisposable` 释放数据运行时
+- `src/Storage.Tests/` — 6 项：热路径不阻塞（阻塞 sink 下 500 次 Append 立即返回）、队列溢出丢最旧+告警、SQLite 建表+入队+flush+ReadAll 往返、flush 取消、CSV 分页流式（250 行/BOM/进度）、CSV 首页后取消
+- `src/Nodes.Data.Tests/` — 7 项：工厂/参数反射 + 图内 `data.write`→`data.query` 往返 + 查询取消 + 缺失数据源故障 + JSON 往返
+- 全解决方案：**163 项单测全绿**（36 Core + 11 Runtime + 12 App + 17 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 6 Storage + 7 Nodes.Data）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（已注册回环 Modbus 设备、演示运动控制器与 SQLite 追溯数据源）
+
 > 下一步：交互式连线（Nodify PendingConnection 拖拽建线/断线）、数据面板、运行期实时数据（scope 值/图像预览）、真实 Halcon 适配器（部署机接入 $MVTEC）。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

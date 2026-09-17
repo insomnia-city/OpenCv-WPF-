@@ -598,7 +598,7 @@ public readonly record struct OperationRecord(
 10. 原生计算内核：`vx_*.dll` C ABI 骨架 + 体素下采样/法线估计 managed proxy + 回退路径。
 11. 应用层：工程管理、Recipe、撤销重做、权限、追溯。
 
---- linenum-guard ---
+---
 
 ### 13.1 阶段门（Stage Gate）——阶段式要求与验收标准
 
@@ -621,11 +621,9 @@ public readonly record struct OperationRecord(
 - **闸门铁律**：上一阶段未全绿，不硬化后续阶段；验收只看可测判定，现场试点循环为末级确认。
 - **与里程碑的关系**：§13 上部 1~11 是**顺序**，本表把每一步翻译成**阶段 + 验收门**；里程碑编号不动、ADR-014（预览/存图/CSV/统计）与 ADR-015（阶段门）在此收口。
 
-</think>
+---
 
-<｜DSML｜tool_calls>
-<｜DSML｜invoke name="edit">
-<｜DSML｜parameter name="filePath" string="true">C:\Users\14251\Desktop\工作流\halcon工作流\docs\DESIGN.md
+## 14. 待定 / 开放问题（实现前需拍板）
 
 - 并行分支的 Halcon 引擎隔离粒度默认策略（`HalconEnginePool` 大小与相机/引擎绑定关系）。
 - Tag 订阅 → 图触发的背压与去抖参数（窗口/上限是否随触发源差异化）。
