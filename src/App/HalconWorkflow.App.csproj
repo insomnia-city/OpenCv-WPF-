@@ -26,6 +26,7 @@
     <ProjectReference Include="..\Nodes.Motion\HalconWorkflow.Nodes.Motion.csproj" />
     <ProjectReference Include="..\Storage\HalconWorkflow.Storage.csproj" />
     <ProjectReference Include="..\Nodes.Data\HalconWorkflow.Nodes.Data.csproj" />
+    <ProjectReference Include="..\Plugins\HalconWorkflow.Plugins.csproj" />
   </ItemGroup>
 
 </Project>

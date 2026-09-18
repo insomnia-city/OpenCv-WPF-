@@ -20,6 +20,13 @@
     <ProjectReference Include="..\Runtime\HalconWorkflow.Runtime.csproj" />
     <ProjectReference Include="..\Nodes.Flow\HalconWorkflow.Nodes.Flow.csproj" />
     <ProjectReference Include="..\Nodes.Vision\HalconWorkflow.Nodes.Vision.csproj" />
+    <ProjectReference Include="..\SamplePlugin\SamplePlugin.csproj" />
   </ItemGroup>
+
+  <!-- Stage 17: ship the sample external plugin in a real /plugins folder so the shell's startup
+       loader is exercised end-to-end. · 阶段17：把样例外部插件放入真实 /plugins 目录，端到端验证壳层启动装载。 -->
+  <Target Name="CopySamplePlugin" AfterTargets="Build">
+    <Copy SourceFiles="$(OutDir)SamplePlugin.dll" DestinationFolder="$(OutDir)plugins" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
