@@ -1,3 +1,4 @@
+using HalconWorkflow.Nodes.Vision.Adapters;
 using HalconWorkflow.Nodes.Vision.Engines;
 
 namespace HalconWorkflow.Nodes.Vision;
@@ -42,12 +43,37 @@ public static class HalconProbe
 }
 
 /// <summary>
+/// Outcome of <see cref="VisionEngineFactory.CreateResolved"/> — which engine was
+/// chosen, whether it is the software fallback, and why (stable reason codes).
+/// / CreateResolved 的解析结果：选中了哪个引擎、是否为软回退、原因（稳定码）。
+/// </summary>
+public sealed record EngineResolution(string Id, bool IsFallback, string Reason, string? Detail = null)
+{
+    /// <summary>Fallback forced by the caller (forcePhantom). · 调用方强制回退（forcePhantom）</summary>
+    public static EngineResolution ForcedFallback => new("phantom", true, "forced");
+
+    /// <summary>Fallback because no licensed Halcon runtime was found. · 未找到授权 Halcon 运行时的回退</summary>
+    public static EngineResolution NoHalconRuntime => new("phantom", true, "no-halcon-runtime");
+
+    /// <summary>Fallback because a runtime exists but no adapter is registered. · 有运行时但未注册适配器的回退</summary>
+    public static EngineResolution UnwiredHalcon => new("phantom", true, "halcon-unwired");
+
+    /// <summary>Fallback because the registered adapter factory threw. · 注册的适配器工厂抛异常时的回退</summary>
+    public static EngineResolution AdapterFailed(string detail)
+        => new("phantom", true, "halcon-adapter-failed", detail);
+
+    /// <summary>Real engine over a registered adapter. · 经已注册适配器启用的真实引擎</summary>
+    public static EngineResolution RealEngine(string provider)
+        => new(provider, false, "halcon-adapter");
+}
+
+/// <summary>
 /// Resolves a concrete engine given the machine state: a real Halcon adapter when a
-/// licensed runtime is installed, otherwise the deterministic software fallback
-/// (§6.3). Today the Halcon adapter plugs in at deployment; the pool and bridge are
-/// already hardened against the same leased interface.
-/// / 依据宿主环境解析具体引擎：有授权运行时用 Halcon 适配器;否则用确定性软回退（§6.3）。
-///   现阶段 Halcon 适配器于部署期接入;池与桥已按同一租约接口加固。
+/// licensed runtime is installed and a deployment adapter is registered, otherwise the
+/// deterministic software fallback (§6.3). Resolution never throws — every unexpected
+/// state degrades to the phantom engine with an explicit <see cref="EngineResolution"/>.
+/// / 依据宿主环境解析具体引擎：已有授权运行时且注册了部署适配器时用真实 Halcon;
+///   其余任何状态统一回退确定性软回退（§6.3）。解析永不抛异常，所有意外状态均降级幻影并留显式原因。
 /// </summary>
 public static class VisionEngineFactory
 {
@@ -56,11 +82,43 @@ public static class VisionEngineFactory
     /// / 构造引擎;可强制使用回退引擎以保证运行确定性
     /// </summary>
     public static IVisionEngine CreateResolved(bool forcePhantom = false)
+        => CreateResolved(forcePhantom, out _);
+
+    /// <summary>
+    /// Builds an engine and reports the resolution outcome. / 构造引擎并返回解析结果
+    /// </summary>
+    public static IVisionEngine CreateResolved(bool forcePhantom, out EngineResolution resolution)
+        => CreateResolvedCore(forcePhantom, HalconProbe.TryLocateManagedAssembly, out resolution);
+
+    /// <summary>
+    /// Resolution core with an injectable probe (test seam; the machine probe otherwise).
+    /// / 解析核心，探测函数可注入（测试接缝;生产用本机探测）。
+    /// </summary>
+    internal static IVisionEngine CreateResolvedCore(bool forcePhantom,
+        Func<string?> probe, out EngineResolution resolution)
     {
-        if (!forcePhantom && HalconProbe.TryLocateManagedAssembly() is not null)
-            throw new PlatformNotSupportedException(
-                "Halcon runtime detected but the Halcon adapter is not yet wired; " +
-                "use forcePhantom:true or install the adapter (halcon adapter not deployed in this stage).");
+        if (forcePhantom)
+        {
+            resolution = EngineResolution.ForcedFallback;
+            return new PhantomVisionEngine();
+        }
+
+        string? managed = probe();
+        if (managed is null)
+        {
+            resolution = EngineResolution.NoHalconRuntime;
+            return new PhantomVisionEngine();
+        }
+
+        if (HalconAdapterRegistry.TryCreate(out var adapter, out var detail))
+        {
+            resolution = EngineResolution.RealEngine(adapter!.Provider);
+            return new HalconVisionEngine(adapter);
+        }
+
+        resolution = detail is null
+            ? EngineResolution.UnwiredHalcon
+            : EngineResolution.AdapterFailed(detail);
         return new PhantomVisionEngine();
     }
 }

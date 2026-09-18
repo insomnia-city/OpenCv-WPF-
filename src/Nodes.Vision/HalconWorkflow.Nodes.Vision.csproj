@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="HalconWorkflow.Nodes.Vision.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Core\HalconWorkflow.Core.csproj" />
     <ProjectReference Include="..\Abstractions\HalconWorkflow.Abstractions.csproj" />
   </ItemGroup>
