@@ -205,6 +205,13 @@ public interface IUndoService
     bool CanUndoToSavePoint { get; }
 
     /// <summary>
+    /// True when the current state differs from the last save/load point in either direction:
+    /// edits above the save point, OR undone below it, OR a divergent branch after undoing.
+    /// Drives the unsaved-changes guard. · 当前状态是否偏离最近保存/载入点（保存点之上有编辑、已回退到其下、或撤销后走出新分支）——驱动未保存改动防护。
+    /// </summary>
+    bool IsModifiedSinceSave { get; }
+
+    /// <summary>
     /// Undoes until the last save point; returns how many steps were rolled back (§9.2).
     /// · 撤销至最近保存点；返回回滚步数(§9.2)
     /// </summary>

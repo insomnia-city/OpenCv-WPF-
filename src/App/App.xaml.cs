@@ -21,6 +21,7 @@ public partial class App : Application
         loc.Culture = new System.Globalization.CultureInfo("zh-Hans");
 
         _shell = new ShellViewModel(loc, new WindowsDialogService());
+        CrashGuard.Install(this, message => _shell?.Log.Add("error", message));
         var window = new MainWindow { DataContext = _shell };
         window.Show();
     }

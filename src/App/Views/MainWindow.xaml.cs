@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using HalconWorkflow.App.ViewModels;
 using Nodify;
@@ -28,5 +29,19 @@ internal sealed partial class MainWindow : Window
     {
         if (e.OriginalSource is ItemContainer { DataContext: NodeViewModel vm })
             ((ShellViewModel)DataContext).DeselectNode(vm);
+    }
+
+    /// <summary>
+    /// Refuses to close while the shell reports unsaved changes the user won't discard.
+    /// · 壳层报告有未保存改动且用户不放弃时拒绝关闭。
+    /// </summary>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        if (DataContext is ShellViewModel shell && !shell.ConfirmClose())
+        {
+            e.Cancel = true;
+            return;
+        }
+        base.OnClosing(e);
     }
 }

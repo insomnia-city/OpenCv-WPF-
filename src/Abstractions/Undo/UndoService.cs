@@ -15,6 +15,7 @@ public sealed class UndoService : IUndoService
     private readonly LinkedList<IUndoableCommand> _redo = new();
     private const int MaxDepth = 200;
     private int _savePointDepth;
+    private IUndoableCommand[] _savedPath = [];
 
     /// <inheritdoc />
     public int CanUndoCount { get { lock (_gate) return _undo.Count; } }
@@ -24,6 +25,25 @@ public sealed class UndoService : IUndoService
 
     /// <inheritdoc />
     public bool CanUndoToSavePoint { get { lock (_gate) return _undo.Count > _savePointDepth; } }
+
+    /// <inheritdoc />
+    public bool IsModifiedSinceSave
+    {
+        get
+        {
+            lock (_gate)
+            {
+                // Compare the committed undo path against the snapshot taken at save/load. Depth
+                // alone is not enough: undoing below the save point then branching to the same
+                // depth would masquerade as clean. · 仅比深度不够：回退到保存点之下再走出等深分支会被误判为干净。
+                if (_undo.Count != _savedPath.Length) return true;
+                var i = 0;
+                foreach (var cmd in _undo)
+                    if (!ReferenceEquals(cmd, _savedPath[i++])) return true;
+                return false;
+            }
+        }
+    }
 
     /// <inheritdoc />
     public async Task PushAndRunAsync(IUndoableCommand cmd, CancellationToken ct)
@@ -72,10 +92,17 @@ public sealed class UndoService : IUndoService
     }
 
     /// <summary>Clears all stacks (switch project / load new graph). · 清空全部栈(切换工程/载入新图)</summary>
-    public void Clear() { lock (_gate) { _undo.Clear(); _redo.Clear(); _savePointDepth = 0; } }
+    public void Clear() { lock (_gate) { _undo.Clear(); _redo.Clear(); _savePointDepth = 0; _savedPath = []; } }
 
     /// <inheritdoc />
-    public void MarkSaved() { lock (_gate) _savePointDepth = _undo.Count; }
+    public void MarkSaved()
+    {
+        lock (_gate)
+        {
+            _savePointDepth = _undo.Count;
+            _savedPath = _undo.ToArray(); // snapshot the clean path for dirty comparison · 快照干净路径用于脏判定
+        }
+    }
 
     /// <inheritdoc />
     public async Task<int> UndoToSavePointAsync(CancellationToken ct)

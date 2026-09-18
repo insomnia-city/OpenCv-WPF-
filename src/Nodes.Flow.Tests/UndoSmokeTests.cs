@@ -158,6 +158,77 @@ public class UndoSmokeTests
         Assert.False(undo.CanUndoToSavePoint);
     }
 
+    [Fact]
+    public async Task IsModifiedSinceSave_TracksPushSaveUndoRedo()
+    {
+        var graph = new GraphModel();
+        var undo = new UndoService();
+        Assert.False(undo.IsModifiedSinceSave);                                  // fresh stack is clean · 新栈干净
+
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None);
+        Assert.True(undo.IsModifiedSinceSave);                                   // edit above save point · 保存点之上有编辑
+
+        undo.MarkSaved();
+        Assert.False(undo.IsModifiedSinceSave);                                  // saved → clean · 已保存转干净
+
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Join("j"), 0, 0), CancellationToken.None);
+        Assert.True(undo.IsModifiedSinceSave);
+
+        await undo.UndoAsync(CancellationToken.None);
+        Assert.False(undo.IsModifiedSinceSave);                                  // undone exactly to the save point · 恰好撤回保存点
+
+        await undo.RedoAsync(CancellationToken.None);
+        Assert.True(undo.IsModifiedSinceSave);                                   // redone away again · 重做后再次偏离
+    }
+
+    [Fact]
+    public async Task IsModifiedSinceSave_UndoBelowThenBranchToSameDepth_IsStillDirty()
+    {
+        // Depth-only tracking would call this "clean" (same stack depth as the save point) even
+        // though the graph carries a different command at that depth. · 仅按深度会误判为干净。
+        var graph = new GraphModel();
+        var undo = new UndoService();
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None);
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Join("j"), 0, 0), CancellationToken.None);
+        undo.MarkSaved();
+        Assert.False(undo.IsModifiedSinceSave);
+
+        await undo.UndoAsync(CancellationToken.None);                            // drop the join, below the save point · 回到保存点之下
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Branch("b"), 0, 0), CancellationToken.None);
+        Assert.Equal(2, undo.CanUndoCount);                                      // same depth as save point · 与保存点同深
+        Assert.True(undo.IsModifiedSinceSave);                                   // but divergent → dirty · 已分支→脏
+    }
+
+    [Fact]
+    public async Task IsModifiedSinceSave_UndoBelowAndRedoBack_IsCleanAgain()
+    {
+        var graph = new GraphModel();
+        var undo = new UndoService();
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None);
+        await undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Join("j"), 0, 0), CancellationToken.None);
+        undo.MarkSaved();
+
+        await undo.UndoAsync(CancellationToken.None);
+        await undo.UndoAsync(CancellationToken.None);                            // below the save point · 回到保存点之下
+        Assert.True(undo.IsModifiedSinceSave);
+
+        await undo.RedoAsync(CancellationToken.None);
+        await undo.RedoAsync(CancellationToken.None);                            // back on the saved path · 回到保存路径
+        Assert.False(undo.IsModifiedSinceSave);
+    }
+
+    [Fact]
+    public void Clear_ResetsModifiedFlag()
+    {
+        var undo = new UndoService();
+        var graph = new GraphModel();
+        undo.PushAndRunAsync(GraphCommands.AddNode(graph, FlowNodes.Counter("c"), 0, 0), CancellationToken.None)
+            .GetAwaiter().GetResult();
+        Assert.True(undo.IsModifiedSinceSave);
+        undo.Clear();
+        Assert.False(undo.IsModifiedSinceSave);
+    }
+
     private static async Task<GraphLink?> Connector(GraphModel graph, UndoService undo, INode from, INode to)
     {
         var execOut = from.Outputs.First(p => p.Kind == PortKind.Exec);
