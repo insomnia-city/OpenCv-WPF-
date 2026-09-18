@@ -10,23 +10,45 @@
         <ctrl:AccentToBrushConverter x:Key="AccentToBrush" />
         <ctrl:StateToBrushConverter x:Key="StateToBrush" />
         <ctrl:PortKindToBrushConverter x:Key="PortKindToBrush" />
+        <ctrl:ConnectStateToBrushConverter x:Key="ConnectStateToBrush" />
 
         <SolidColorBrush x:Key="CardBg" Color="#FF263238" />
         <SolidColorBrush x:Key="CardBorder" Color="#FF455A64" />
         <SolidColorBrush x:Key="TextPrimary" Color="#FFF5F5F5" />
         <SolidColorBrush x:Key="TextSecondary" Color="#FF90A4AE" />
 
-        <!-- Shared port row: dot + label · 通用端口行：圆点+名称 -->
+        <!-- Transparent drag hotspot over a port dot (§4.3, stage-12). · 端口圆点上的透明拖拽热点(§4.3,阶段12) -->
+        <Style x:Key="PortConnectorStyle" TargetType="{x:Type nod:Connector}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type nod:Connector}">
+                        <Border Background="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Shared input port row: dot + label + live value badge (§5.4, stage-13) · 输入端口行：圆点+名称+运行值徽标 -->
         <DataTemplate x:Key="InputPortTemplate">
             <Grid Height="26">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="18" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <Ellipse Grid.Column="0" Width="10" Height="10" Margin="0,0,0,0" VerticalAlignment="Center"
-                         Fill="{Binding IsExec, Converter={StaticResource PortKindToBrush}}" Stroke="#FF102027" StrokeThickness="1" />
-                <TextBlock Grid.Column="1" Text="{Binding Name}" Foreground="{StaticResource TextPrimary}"
-                           FontSize="12" VerticalAlignment="Center" Margin="6,0,0,0" />
+                <Grid Grid.Column="0" Width="18" Height="18" VerticalAlignment="Center">
+                    <Ellipse Width="13" Height="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Stroke="{Binding Highlight, Converter={StaticResource ConnectStateToBrush}}" StrokeThickness="2" />
+                    <Ellipse Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Fill="{Binding IsExec, Converter={StaticResource PortKindToBrush}}" Stroke="#FF102027" StrokeThickness="1" />
+                    <nod:Connector Style="{StaticResource PortConnectorStyle}" IsConnected="{Binding IsConnected}" />
+                </Grid>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="4,0,0,0">
+                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimary}" FontSize="12" />
+                    <TextBlock Text="{Binding ValueText}" Foreground="{StaticResource TextSecondary}" FontSize="9"
+                               TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                </StackPanel>
             </Grid>
         </DataTemplate>
 
@@ -34,12 +56,20 @@
             <Grid Height="26">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="10" />
+                    <ColumnDefinition Width="18" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Text="{Binding Name}" Foreground="{StaticResource TextPrimary}"
-                           FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0" />
-                <Ellipse Grid.Column="1" Width="10" Height="10" VerticalAlignment="Center"
-                         Fill="{Binding IsExec, Converter={StaticResource PortKindToBrush}}" Stroke="#FF102027" StrokeThickness="1" />
+                <StackPanel Grid.Column="0" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,4,0">
+                    <TextBlock Text="{Binding Name}" Foreground="{StaticResource TextPrimary}" FontSize="12" HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding ValueText}" Foreground="{StaticResource TextSecondary}" FontSize="9"
+                               TextTrimming="CharacterEllipsis" MaxWidth="150" HorizontalAlignment="Right" />
+                </StackPanel>
+                <Grid Grid.Column="1" Width="18" Height="18" VerticalAlignment="Center">
+                    <Ellipse Width="13" Height="13" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Stroke="{Binding Highlight, Converter={StaticResource ConnectStateToBrush}}" StrokeThickness="2" />
+                    <Ellipse Width="10" Height="10" HorizontalAlignment="Center" VerticalAlignment="Center"
+                             Fill="{Binding IsExec, Converter={StaticResource PortKindToBrush}}" Stroke="#FF102027" StrokeThickness="1" />
+                    <nod:Connector Style="{StaticResource PortConnectorStyle}" IsConnected="{Binding IsConnected}" />
+                </Grid>
             </Grid>
         </DataTemplate>
 
@@ -133,7 +163,18 @@
 
         <!-- Canvas connection line · 画布连线 -->
         <DataTemplate x:Key="ConnectionTemplate">
-            <nod:Connection Source="{Binding Source}" Target="{Binding Target}" Stroke="#FF78909C" StrokeThickness="2" />
+            <nod:Connection Source="{Binding Source}" Target="{Binding Target}" Stroke="#FF78909C" StrokeThickness="2">
+                <nod:Connection.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="{Binding DisconnectLabel}" Command="{Binding DisconnectCommand}" />
+                    </ContextMenu>
+                </nod:Connection.ContextMenu>
+            </nod:Connection>
+        </DataTemplate>
+
+        <!-- Dragged pending connection: dashed preview line (§4.3, stage-12). · 拖拽中的待定连线：虚线预览(§4.3,阶段12) -->
+        <DataTemplate x:Key="PendingConnectionTemplate">
+            <nod:PendingConnection IsVisible="True" Foreground="#FF4FC3F7" />
         </DataTemplate>
 
         <!-- Template routing: contract family → card · 模板路由：契约族 → 卡片 -->

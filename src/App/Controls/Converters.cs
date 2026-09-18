@@ -106,6 +106,33 @@ public sealed class PortKindToBrushConverter : IValueConverter
 }
 
 /// <summary>
+/// Connection-interactive highlight: None→transparent ring, Valid→green ring, Invalid→red ring (§4.3, stage-12).
+/// / 交互连线高亮：None→透明环，Valid→绿环，Invalid→红环(§4.3,阶段12)
+/// </summary>
+public sealed class ConnectStateToBrushConverter : IValueConverter
+{
+    private static readonly SolidColorBrush ValidBrush = new(Color.FromRgb(0x4C, 0xAF, 0x50));
+    private static readonly SolidColorBrush InvalidBrush = new(Color.FromRgb(0xE5, 0x39, 0x35));
+    private static readonly SolidColorBrush NoneBrush = new(Colors.Transparent);
+
+    static ConnectStateToBrushConverter()
+    {
+        ValidBrush.Freeze(); InvalidBrush.Freeze(); NoneBrush.Freeze();
+    }
+
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => value is ConnectState s ? s switch
+        {
+            ConnectState.Valid => ValidBrush,
+            ConnectState.Invalid => InvalidBrush,
+            _ => NoneBrush
+        } : NoneBrush;
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary>
 /// Renders raw image bytes into a frozen BitmapImage for the result-preview panel (§9.5.1).
 /// · 将原始图像字节渲染为冻结的 BitmapImage，供结果预览面板使用(§9.5.1)
 /// </summary>

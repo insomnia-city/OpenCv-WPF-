@@ -115,6 +115,10 @@
                     <nod:NodifyEditor ItemsSource="{Binding Editor.Nodes}"
                                       Connections="{Binding Editor.Connections}"
                                       ConnectionTemplate="{StaticResource ConnectionTemplate}"
+                                      PendingConnectionTemplate="{StaticResource PendingConnectionTemplate}"
+                                      ConnectionStartedCommand="{Binding ConnectionStartedCommand}"
+                                      ConnectionCompletedCommand="{Binding ConnectionCompletedCommand}"
+                                      DisconnectConnectorCommand="{Binding DisconnectConnectorCommand}"
                                       Background="#FF11151A"
                                       Foreground="#FF78909C"
                                       GridCellSize="24">

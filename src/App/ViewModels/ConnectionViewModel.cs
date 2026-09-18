@@ -1,11 +1,13 @@
 using System.Windows;
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using HalconWorkflow.Core.Graph;
 
 namespace HalconWorkflow.App.ViewModels;
 
 /// <summary>
-/// Connection projection: exposes graph-space Point anchors for the Nodify line and re-anchors when an endpoint node moves. 
+/// Connection projection: exposes graph-space Point anchors for the Nodify line and re-anchors when an endpoint node moves.
 /// 连线投影：暴露 Nodify 线条所需的图空间锚点;任一端节点移动时重新锚定
 /// </summary>
 public sealed partial class ConnectionViewModel : ObservableObject
@@ -56,6 +58,30 @@ public sealed partial class ConnectionViewModel : ObservableObject
         get => _target;
         private set => SetProperty(ref _target, value);
     }
+
+    /// <summary>Disconnects this link (wired by the shell on Rebind). · 断开此连线(壳层在 Rebind 时接线)</summary>
+    public ICommand DisconnectCommand
+    {
+        get => _disconnectCommand ??= new RelayCommand(() => _disconnectHandler?.Invoke(this));
+        set { _disconnectCommand = value; OnPropertyChanged(); }
+    }
+    private ICommand? _disconnectCommand;
+
+    /// <summary>Localized menu label for the disconnect action. · 断线操作的本地化菜单文本</summary>
+    public string DisconnectLabel
+    {
+        get => _disconnectLabel;
+        set => SetProperty(ref _disconnectLabel, value);
+    }
+    private string _disconnectLabel = "Disconnect";
+
+    /// <summary>Async handler injected by the shell for undoable disconnect. · 壳层注入的异步断开处理程序</summary>
+    internal Func<ConnectionViewModel, Task>? DisconnectHandler
+    {
+        get => _disconnectHandler;
+        set => _disconnectHandler = value;
+    }
+    private Func<ConnectionViewModel, Task>? _disconnectHandler;
 
     private void OnEndpointMoved(NodeViewModel _) => Reanchor();
 

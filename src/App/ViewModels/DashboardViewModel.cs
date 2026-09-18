@@ -152,6 +152,14 @@ public sealed partial class DashboardViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Lightweight live preview refresh during a run: repaints only the result-preview pane from the
+    /// ring and never re-queries the trace source (§9.5.1, stage-13 producer wiring). Called by the
+    /// shell on the UI thread after each published image frame. · 运行中预览轻量刷新：仅从预览环重绘
+    /// 结果预览面板、绝不再查追溯源(§9.5.1,阶段13 生产者接线)；由壳层在 UI 线程每次发布图像帧后调用。
+    /// </summary>
+    public void PushPreview() => RefreshPreview();
+
     /// <summary>Clears the board, slices and preview (does not touch the trace source). · 清空看板/切片/预览(不动追溯源)</summary>
     [RelayCommand]
     private void Clear()

@@ -71,6 +71,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["property.empty"] = "Select a node to edit its parameters",
         ["status.ready"] = "Ready",
         ["status.noGraph"] = "No graph loaded",
+        ["dialog.discard"] = "Discard unsaved changes?",
         ["tab.editor"] = "Editor",
         ["tab.dashboard"] = "Dashboard",
         ["dash.title"] = "Trace Board",
@@ -122,7 +123,18 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["audit.col.at"] = "Time",
         ["audit.col.user"] = "User",
         ["audit.col.action"] = "Action",
-        ["audit.col.target"] = "Object"
+        ["audit.col.target"] = "Object",
+        ["link.disconnect"] = "Disconnect",
+        ["link.error.direction"] = "Cannot connect: ports have the same direction.",
+        ["link.error.type"] = "Type mismatch: port types are not compatible.",
+        ["link.error.cycle"] = "Connection would create a cycle.",
+        ["link.error.invalid"] = "Invalid connection.",
+        ["link.error.singleSource"] = "Data input port already has a source.",
+        ["capability.vision"] = "Vision engine",
+        ["capability.motion"] = "Motion control",
+        ["capability.real"] = "real",
+        ["capability.fallback"] = "fallback",
+        ["capability.summary"] = "Runtime capability: {0} real, {1} fallback"
     };
 
     private static readonly IReadOnlyDictionary<string, string> ZhHans = new Dictionary<string, string>
@@ -170,6 +182,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["property.empty"] = "选择节点以编辑其参数",
         ["status.ready"] = "就绪",
         ["status.noGraph"] = "未载入图",
+        ["dialog.discard"] = "放弃未保存的修改？",
         ["tab.editor"] = "编辑",
         ["tab.dashboard"] = "看板",
         ["dash.title"] = "追溯看板",
@@ -221,7 +234,18 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["audit.col.at"] = "时间",
         ["audit.col.user"] = "用户",
         ["audit.col.action"] = "动作",
-        ["audit.col.target"] = "对象"
+        ["audit.col.target"] = "对象",
+        ["link.disconnect"] = "断开",
+        ["link.error.direction"] = "无法连线：两个端口方向相同",
+        ["link.error.type"] = "类型不匹配：端口类型不兼容",
+        ["link.error.cycle"] = "连线将形成环路",
+        ["link.error.invalid"] = "无效连线",
+        ["link.error.singleSource"] = "数据输入端口已有来源",
+        ["capability.vision"] = "视觉引擎",
+        ["capability.motion"] = "运动控制",
+        ["capability.real"] = "真实",
+        ["capability.fallback"] = "回退",
+        ["capability.summary"] = "运行能力：真实 {0} 项，回退 {1} 项"
     };
 
     private static readonly IReadOnlyDictionary<string, string> Ko = new Dictionary<string, string>
@@ -269,6 +293,7 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["property.empty"] = "노드를 선택하여 매개변수를 편집하세요",
         ["status.ready"] = "준비됨",
         ["status.noGraph"] = "그래프가 없습니다",
+        ["dialog.discard"] = "저장하지 않은 변경 사항을 버리시겠습니까?",
         ["tab.editor"] = "편집",
         ["tab.dashboard"] = "대시보드",
         ["dash.title"] = "추적 대시보드",
@@ -320,7 +345,18 @@ public sealed class LocalizationService : INotifyPropertyChanged
         ["audit.col.at"] = "시간",
         ["audit.col.user"] = "사용자",
         ["audit.col.action"] = "동작",
-        ["audit.col.target"] = "대상"
+        ["audit.col.target"] = "대상",
+        ["link.disconnect"] = "연결 끊기",
+        ["link.error.direction"] = "연결할 수 없습니다: 두 포트의 방향이 같습니다",
+        ["link.error.type"] = "유형 불일치: 포트 유형이 호환되지 않습니다",
+        ["link.error.cycle"] = "연결이 순환을 만듭니다",
+        ["link.error.invalid"] = "잘못된 연결입니다",
+        ["link.error.singleSource"] = "데이터 입력 포트에 이미 소스가 있습니다",
+        ["capability.vision"] = "비전 엔진",
+        ["capability.motion"] = "모션 제어",
+        ["capability.real"] = "실제",
+        ["capability.fallback"] = "폴백",
+        ["capability.summary"] = "런타임 기능: 실제 {0}, 폴백 {1}"
     };
 
     private readonly Dictionary<string, IReadOnlyDictionary<string, string>> _tables = new(StringComparer.Ordinal)

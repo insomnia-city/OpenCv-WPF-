@@ -19,6 +19,18 @@ public sealed partial class MainEditorViewModel : ObservableObject
     /// </summary>
     public Func<NodeViewModel, Task>? RemoveAsyncHandler { get; set; }
 
+    /// <summary>
+    /// When set by the shell, connection disconnection runs through the undoable command path (§9.2, stage-12).
+    /// 壳层设置后，断线走可撤销命令路径(§9.2,阶段12)
+    /// </summary>
+    public Func<ConnectionViewModel, Task>? DisconnectAsyncHandler { get; set; }
+
+    /// <summary>
+    /// Localization lookup injected by the shell so connection projections can show localized menu labels.
+    /// 壳层注入的本地化查询，使连线投影可显示本地化菜单文本
+    /// </summary>
+    public Func<string, string>? TextProvider { get; set; }
+
     /// <summary>Kernel graph the canvas edits. · 画布编辑的内核图</summary>
     public GraphModel Graph { get; private set; } = new();
 
@@ -63,7 +75,10 @@ public sealed partial class MainEditorViewModel : ObservableObject
             var fp = f.Inputs.Concat(f.Outputs).FirstOrDefault(p => ReferenceEquals(p.Kernel, l.From));
             var tp = t.Inputs.Concat(t.Outputs).FirstOrDefault(p => ReferenceEquals(p.Kernel, l.To));
             if (fp is null || tp is null) continue;
-            Connections.Add(new ConnectionViewModel(l, f, fp, t, tp));
+            var cvm = new ConnectionViewModel(l, f, fp, t, tp);
+            cvm.DisconnectHandler = DisconnectAsyncHandler;
+            cvm.DisconnectLabel = TextProvider?.Invoke("link.disconnect") ?? "Disconnect";
+            Connections.Add(cvm);
         }
     }
 

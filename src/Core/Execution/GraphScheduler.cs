@@ -240,7 +240,12 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
                 await gn.Node.ExecuteAsync(ctx, ct).ConfigureAwait(false);
                 sw.Stop();
                 success++;
-                evt = new NodeExecutionEvent(gn.Id, signal, NodeExecutionPhase.Completed, sw.ElapsedMilliseconds);
+                // Snapshot the node's data outputs immediately after execution. Capturing right here
+                // (not later) keeps the flat tag table collision-free across identical port names.
+                // / 节点执行完立即对其数据输出做快照。此处即时捕获(而非事后)避免扁平 tag 表同名端口互相覆盖
+                var values = CaptureOutputValues(ctx, gn.Node);
+                evt = new NodeExecutionEvent(gn.Id, signal, NodeExecutionPhase.Completed, sw.ElapsedMilliseconds,
+                    null, values);
             }
             catch (OperationCanceledException)
             {
@@ -264,6 +269,26 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
         var finished = DateTimeOffset.UtcNow;
         var ok = error is null;
         return new GraphRunResult(ok, signal, started, finished, ok ? null : error, success, faulted);
+    }
+
+    /// <summary>
+    /// Captures every data-output value the node just produced into the shared tag table, mirrors
+    /// it onto the port's Value reference and returns the dictionary (null when the node has no
+    /// data outputs). Exec ports carry no values and are skipped. · 捕获该节点刚写入共享 tag 表的
+    /// 全部数据输出值：回写端口 Value 引用并返回快照字典(无数据输出返回 null)；控制流端口不参与。
+    /// </summary>
+    private static IReadOnlyDictionary<string, object?>? CaptureOutputValues(ExecutionContext ctx, INode node)
+    {
+        Dictionary<string, object?>? values = null;
+        foreach (var port in node.Outputs)
+        {
+            if (port.Kind != PortKind.Data) continue;
+            var value = ctx.GetData(port.Name);
+            port.Value = value;
+            values ??= new Dictionary<string, object?>(StringComparer.Ordinal);
+            values[port.Name] = value;
+        }
+        return values;
     }
 
     /// <inheritdoc />

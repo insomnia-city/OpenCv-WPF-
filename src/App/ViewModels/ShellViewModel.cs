@@ -9,6 +9,7 @@ using HalconWorkflow.Abstractions.Undo;
 using HalconWorkflow.App.Services;
 using HalconWorkflow.Core.Contracts;
 using HalconWorkflow.Core.Execution;
+using HalconWorkflow.Core.Graph;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Serialization;
 using HalconWorkflow.Nodes.Comm;
@@ -19,7 +20,9 @@ using HalconWorkflow.MotionDrivers;
 using HalconWorkflow.Nodes.Vision;
 using HalconWorkflow.Nodes.Vision.Commands;
 using HalconWorkflow.Nodes.Vision.Engines;
+using HalconWorkflow.Nodes.Vision.Imaging;
 using HalconWorkflow.Nodes.Vision.Nodes;
+using HalconWorkflow.Plugins;
 using HalconWorkflow.Protocols;
 using HalconWorkflow.Protocols.Modbus;
 using HalconWorkflow.Runtime.Nodes;
@@ -43,8 +46,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly SynchronizationContext? _ui;
     private readonly GraphScheduler _scheduler = new();
     private readonly UndoService _undo = new();
+    // Resolved at runtime: real Halcon adapter when the deployment site registers one and
+    // a licensed runtime is present; otherwise the deterministic phantom fallback (§6.3).
+    // / 运行期解析：部署现场注册适配器且存在授权运行时用真实 Halcon;否则确定性幻影回退（§6.3）。
     private readonly VisionEnginePool _visionPool = new(
-        () => VisionEngineFactory.CreateResolved(forcePhantom: true), capacity: 2);
+        () => VisionEngineFactory.CreateResolved(), capacity: 2);
     private readonly CommRuntime _comm;
     private readonly ModbusTcpSimulator _commSim;
     private readonly MotionRuntime _motion;
@@ -54,6 +60,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly PreviewRing _preview;
     private readonly SqlAuditService _audit;
     private readonly RoleService _roles = new();
+    // Node contracts contributed by external plugins discovered at startup (§10, ADR-007).
+    // / 启动时发现的外部插件贡献的节点契约（§10，ADR-007）。
+    private readonly PluginCatalog _plugins = new();
     private readonly Dictionary<IUndoableCommand, long> _auditIds = new(ReferenceEqualityComparer.Instance);
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
@@ -61,6 +70,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private int _seq;
     private int _paletteOffset;
     private NodeViewModel? _selectedNode;
+    private PortViewModel? _pendingSource;
 
     /// <summary>Localization facade. · 本地化门面</summary>
     public LocalizationService Loc => _loc;
@@ -88,6 +98,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>File-backed image archive for original / rendered snapshots (§9.5.3). · 原图/渲染图文件归档(§9.5.3)</summary>
     public IImageArchive Images => _images;
+
+    /// <summary>Resolved optional-subsystem capabilities: real backend vs §6.3 software fallback. · 已解析的可选子系统能力：真实后端 vs §6.3 软回退</summary>
+    public IReadOnlyList<CapabilityStatus> Capabilities { get; }
+
+    /// <summary>External plugins loaded from the <c>/plugins</c> folder at startup (§10, ADR-007). · 启动时从 <c>/plugins</c> 载入的外部插件（§10，ADR-007）</summary>
+    public PluginLoadResult? Plugins { get; }
 
     /// <summary>Bounded recent-frames ring for the result preview (§9.5.1). · 结果预览的最近帧有界环(§9.5.1)</summary>
     public PreviewRing Preview => _preview;
@@ -171,6 +187,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Undo-to-save-point availability (§9.2). · 撤回到保存点可用状态(§9.2)</summary>
     public bool CanUndoToSavePoint => !_running && _undo.CanUndoToSavePoint;
 
+    /// <summary>
+    /// True when the graph differs from the last save/load point, so New/Load/Close must confirm.
+    /// · 图与最近保存/载入点不同时为真；新建/载入/关闭需确认。
+    /// </summary>
+    public bool HasUnsavedChanges => _undo.IsModifiedSinceSave;
+
     private RoleOption _selectedRole = null!;
 
     /// <summary>Selected role; switching it audits and re-evaluates UI gates (§9.3). · 当前角色;切换时落审计并重算界面门控(§9.3)</summary>
@@ -197,6 +219,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         PropertyPanel.ParameterCommitted += (name, value) =>
             _ = ApplyParameterAsync(_selectedNode, name, value);
         Editor.RemoveAsyncHandler = RemoveNodeAsync;
+        Editor.DisconnectAsyncHandler = DisconnectConnectionAsync;
+        Editor.TextProvider = key => _loc[key];
         _loc.PropertyChanged += (_, _) => OnCultureChanged();
         Editor.New();
         BuildPalette();
@@ -220,6 +244,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         RoleOptions = BuildRoleOptions();
         _selectedRole = RoleOptions.First(o => o.Value == _roles.Current);
         _undo.MarkSaved();
+        Capabilities = RuntimeCapabilities.Collect();
+        foreach (var capability in Capabilities)
+            Log.Add("info", $"{_loc[capability.LabelKey]}: " +
+                $"{(capability.Real ? _loc["capability.real"] : _loc["capability.fallback"])} — {capability.Detail}");
+        Plugins = PluginHost.LoadDirectory(
+            Path.Combine(AppContext.BaseDirectory, PluginHost.DefaultFolder), _plugins);
+        foreach (var loaded in Plugins.Plugins)
+            Log.Add(loaded.Error is null ? "info" : "warn",
+                loaded.Error is null
+                    ? $"plugin {loaded.Name} {loaded.Version}: {loaded.Contracts} contract(s)"
+                    : $"plugin {loaded.Name} failed: {loaded.Error}");
         Status = _loc["status.noGraph"];
     }
 
@@ -248,6 +283,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         var current = _roles.Current;
         RoleOptions = BuildRoleOptions();
         _selectedRole = RoleOptions.First(o => o.Value == current);
+        Editor.RebindConnections(); // refresh localized connection menus · 刷新连线菜单的本地化文本
         OnPropertyChanged(nameof(RoleOptions));
         OnPropertyChanged(nameof(SelectedRole));
         OnPropertyChanged((string?)null);
@@ -430,7 +466,168 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         RaiseUndoState();
     }
 
-    /// <summary>Prepares the canvas for keyboard/product gestures. · 撤销一步编辑</summary>
+    /// <summary>
+    /// Interactive pending-connection start (§4.3, stage-12): remembers the source port and lights
+    /// every other port as a valid (green) or invalid (red) drop target, then clears on drop/cancel.
+    /// / 拖拽连线开始(§4.3,阶段12)：记录源端口并将其它端口标记为合法(绿)或非法(红)落点；落点/取消后清除
+    /// </summary>
+    [RelayCommand]
+    private void ConnectionStarted(PortViewModel? source)
+    {
+        if (source is null || _running) return;
+        _pendingSource = source;
+        UpdateConnectHighlights(source);
+    }
+
+    /// <summary>
+    /// Interactive pending-connection drop (§4.3, stage-12): validates and creates the link through
+    /// the global undo path with permission + audit (§9.2/§9.3).
+    /// / 拖拽连线落点(§4.3,阶段12)：经全局撤销路径校验并建线，含权限与审计(§9.2/§9.3)
+    /// </summary>
+    [RelayCommand]
+    private async Task ConnectionCompletedAsync(PortViewModel? target)
+    {
+        var source = _pendingSource;
+        _pendingSource = null;
+        ClearConnectHighlights();
+        if (source is null || target is null || _running) return;
+        await ConnectAsync(source, target);
+    }
+
+    /// <summary>Disconnects every link attached to a port (Nodify connector disconnect gesture). · 断开某端口关联的全部连线(连接器手势)</summary>
+    [RelayCommand]
+    private async Task DisconnectConnectorAsync(PortViewModel? port)
+    {
+        if (port is null || _running) return;
+        var affected = Editor.Connections
+            .Where(c => ReferenceEquals(c.FromPort, port) || ReferenceEquals(c.ToPort, port)).ToList();
+        foreach (var conn in affected) await DisconnectConnectionAsync(conn);
+    }
+
+    /// <summary>
+    /// Lights every port as a drop target for the pending connection (§4.3). Same kernel Validator
+    /// as save-time static validation. · 将每个端口标为拖拽落点(§4.3)；与保存时静态校验同源
+    /// </summary>
+    private void UpdateConnectHighlights(PortViewModel source)
+    {
+        foreach (var nv in Editor.Nodes)
+            foreach (var p in nv.Inputs.Concat(nv.Outputs))
+                p.Highlight = ReferenceEquals(p, source) ? ConnectState.None : JudgeTarget(source, p);
+    }
+
+    private ConnectState JudgeTarget(PortViewModel source, PortViewModel candidate)
+    {
+        // An already-fed data input is never a valid second source. · 已连线的数据输入不可再作为目标
+        if (candidate.IsInput && candidate.IsData && candidate.IsConnected) return ConnectState.Invalid;
+        var pair = NormalizePair(source, candidate);
+        if (pair is null) return ConnectState.Invalid;
+        return Editor.Graph.ValidateLink(pair.Value.From.Kernel, pair.Value.To.Kernel) is null
+            ? ConnectState.Valid
+            : ConnectState.Invalid;
+    }
+
+    private void ClearConnectHighlights()
+    {
+        foreach (var nv in Editor.Nodes)
+            foreach (var p in nv.Inputs.Concat(nv.Outputs))
+                p.Highlight = ConnectState.None;
+    }
+
+    /// <summary>
+    /// Normalizes a drag pair into (output, input); null when both ports share a direction.
+    /// 把拖拽端口对归一化为(输出,输入)；同向时返回 null
+    /// </summary>
+    private static (PortViewModel From, PortViewModel To)? NormalizePair(PortViewModel a, PortViewModel b)
+    {
+        if (a.IsOutput && b.IsInput) return (a, b);
+        if (a.IsInput && b.IsOutput) return (b, a);
+        return null;
+    }
+
+    /// <summary>
+    /// Interactive connect: permission → kernel validation → undoable command → rebind → audit (§9.2/§9.3).
+    /// / 交互连线：权限 → 内核校验 → 可撤销命令 → 重建投影 → 审计(§9.2/§9.3)
+    /// </summary>
+    private async Task ConnectAsync(PortViewModel a, PortViewModel b)
+    {
+        if (_running) return;
+        if (!EnsureAllowed(AuditActions.Connect)) return;
+
+        var pair = NormalizePair(a, b);
+        if (pair is null)
+        {
+            ReportConnectError(_loc["link.error.direction"]);
+            return;
+        }
+        var (from, to) = pair.Value;
+        if (to.Kernel.Kind == PortKind.Data && to.IsConnected)
+        {
+            ReportConnectError(_loc["link.error.singleSource"]);
+            return;
+        }
+        var issue = Editor.Graph.ValidateLink(from.Kernel, to.Kernel);
+        if (issue is not null)
+        {
+            ReportConnectError(LocalizeIssue(issue.Value));
+            return;
+        }
+
+        var command = GraphCommands.Connect(Editor.Graph, from.Kernel, to.Kernel);
+        try
+        {
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
+            Editor.RebindConnections();
+            Log.Add("info", $"Connected {from.Kernel.Owner.Id}:{from.Name} → {to.Kernel.Owner.Id}:{to.Name}");
+            _auditIds[command] = await RecordAuditAsync(AuditActions.Connect,
+                $"{from.Kernel.Owner.Id}:{from.Name}→{to.Kernel.Owner.Id}:{to.Name}");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            Log.Add("error", $"Connect failed: {ex.Message}");
+        }
+        RaiseUndoState();
+    }
+
+    /// <summary>
+    /// Interactive disconnect: permission → undoable command → rebind → audit (§9.2/§9.3).
+    /// / 交互断线：权限 → 可撤销命令 → 重建投影 → 审计(§9.2/§9.3)
+    /// </summary>
+    private async Task DisconnectConnectionAsync(ConnectionViewModel conn)
+    {
+        if (conn is null || _running) return;
+        if (!EnsureAllowed(AuditActions.Disconnect)) return;
+        var command = GraphCommands.Disconnect(Editor.Graph, conn.Link);
+        try
+        {
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
+            Editor.RebindConnections();
+            Log.Add("info", $"Disconnected {conn.From.Id}:{conn.FromPort.Name} → {conn.To.Id}:{conn.ToPort.Name}");
+            _auditIds[command] = await RecordAuditAsync(AuditActions.Disconnect,
+                $"{conn.From.Id}:{conn.FromPort.Name}→{conn.To.Id}:{conn.ToPort.Name}");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            Log.Add("error", $"Disconnect failed: {ex.Message}");
+        }
+        RaiseUndoState();
+    }
+
+    /// <summary>Maps a kernel validation issue to a localized message (ADR-010). · 将内核校验问题映射为本地化消息</summary>
+    private string LocalizeIssue(ValidationIssue issue) => issue.Kind switch
+    {
+        ValidationIssueKind.TypeMismatch => _loc["link.error.type"],
+        ValidationIssueKind.Cycle => _loc["link.error.cycle"],
+        _ => _loc["link.error.invalid"]
+    };
+
+    /// <summary>Logs and reflects a refused interactive connection in the status bar. · 记录拒绝的交互连线并反映到状态栏</summary>
+    private void ReportConnectError(string message)
+    {
+        Log.Add("warn", message);
+        Post(() => Status = message);
+    }
     [RelayCommand]
     private async Task UndoAsync()
     {
@@ -488,6 +685,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanUndo));
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(CanUndoToSavePoint));
+        OnPropertyChanged(nameof(HasUnsavedChanges));
     }
 
     private long? LinkOf(IUndoableCommand? command)
@@ -589,7 +787,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         {
             var graph = GraphJsonSerializer.Deserialize(
                 File.ReadAllText(path),
-                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory(), new DataNodeFactory()));
+                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory(), new DataNodeFactory(), _plugins));
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
             _undo.Clear();
@@ -689,7 +887,19 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Post(() =>
         {
             var nv = Editor.Nodes.FirstOrDefault(n => n.Id == evt.NodeId);
-            if (nv is not null) nv.State = MapPhase(evt.Phase);
+            if (nv is not null)
+            {
+                nv.State = MapPhase(evt.Phase);
+                if (evt.Values is not null)     // stage-13 live scope values · 阶段13 运行期 scope 值
+                {
+                    foreach (var port in nv.Outputs.Where(p => p.IsData))
+                    {
+                        if (evt.Values.TryGetValue(port.Name, out var value))
+                            port.ValueText = RuntimeValueFormatter.Format(value);
+                    }
+                    PublishLivePreview(nv.Id, evt.Values);
+                }
+            }
             var (level, tag) = evt.Phase switch
             {
                 NodeExecutionPhase.Started => ("info", "start"),
@@ -700,6 +910,25 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             };
             Log.Add(level, $"<{evt.Signal.TriggerId[..8]}> {evt.NodeId} {tag} {evt.ElapsedMs}ms{(evt.Error is null ? "" : $" {evt.Error}")}");
         });
+    }
+
+    /// <summary>
+    /// Stage-13 image preview producer: encodes the first VisionFrame among the node's outputs to PNG
+    /// and pushes it into the preview ring (with a lightweight live dashboard repaint). Gated by the
+    /// ring's Enabled switch so high-throughput runs can shut warming off. · 阶段13 图像预览生产者：
+    /// 把节点输出中的首个 VisionFrame 编码为 PNG 推入预览环(并轻量刷新看板预览)。受预览环 Enabled
+    /// 开关门控，高吞吐运行可关闭以免升温。
+    /// </summary>
+    private void PublishLivePreview(string nodeId, IReadOnlyDictionary<string, object?> values)
+    {
+        if (!_preview.Enabled) return;
+        var frame = values.Values.OfType<VisionFrame>().FirstOrDefault();
+        if (frame is null) return;
+        var png = VisionPreviewEncoder.ToPng(frame);
+        if (png is null) return;
+        _preview.Publish(new PreviewFrame(
+            nodeId, DateTimeOffset.UtcNow, png, $"{frame.Width}×{frame.Height} {frame.Format}"));
+        Dashboard.PushPreview();
     }
 
     private void OnRunCompleted(GraphRunResult result)
@@ -833,10 +1062,13 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     };
 
     private bool ConfirmDiscard()
-    {
-        if (_currentPath is null && Editor.Nodes.Count == 0) return true;
-        return _dialogs.Confirm("Discard current graph?");
-    }
+        => !_undo.IsModifiedSinceSave || _dialogs.Confirm(_loc["dialog.discard"]);
+
+    /// <summary>
+    /// Guards window close: refuses to close while there are unsaved changes the user won't discard.
+    /// · 关闭窗口守卫：存在未保存改动且用户不放弃时拒绝关闭。
+    /// </summary>
+    public bool ConfirmClose() => ConfirmDiscard();
 
     private void Post(Action action)
     {
