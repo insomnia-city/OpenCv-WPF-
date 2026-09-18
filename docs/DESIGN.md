@@ -545,13 +545,15 @@ public readonly record struct OperationRecord(
   Protocols/       # Modbus / S7 / OpcUa / Mc / Fins / Mqtt / Tcp / Serial
   MotionDrivers/   # 固高 / 正运动 / 雷赛 / 凌华 等运动卡驱动插件
   Storage/         # 数据访问适配器：Sqlite / SqlServer / MySql / Postgres（Dapper）
+  Plugins/         # 插件宿主：目录扫描 + 每插件可回收 AssemblyLoadContext + 契约/服务目录（ADR-007）
+  SamplePlugin/    # 外部插件样例（验证装载链路）
   App/             # WPF Shell、面板、主题
   Runtime/         # 无头执行宿主（生产模式/服务化）
   Core.Tests/      # 内核单测（调度/校验/序列化/迁移链）
 /plugins           # 外部节点与协议插件目录
 ```
 
-- **插件装载**：DI + 目录扫描 + `AssemblyLoadContext`（每插件独立 ALC，可卸载）。约定每个插件输出一个 `IServiceRegistrar { void Register(...); }`，宿主扫描装载后回调注入容器。
+- **插件装载**：DI + 目录扫描 + `AssemblyLoadContext`（每插件独立 ALC，可卸载）。约定每个插件输出一个 `IServiceRegistrar { void Register(...); }`，宿主扫描装载后回调注入容器。**已实现**：`PluginHost`（三接缝 + 逐插件隔离 + 坏插件只报告不抛出）+ `PluginCatalog`（`INodeFactory` + 服务，后注册覆盖）+ `PluginLoadContext`（可回收，契约程序集与宿主共享）——见阶段17/ADR-021。
 - **契约注册**：插件声明 `NodeContract { ns, version } → Type` 映射，语义版本（`major.minor`）兼容 `major` 相同即可加载。
 - **离线可部署**：`/plugins` 与 `/projects` 解耦，换节点 DLL 不弹框不重启（ALC 卸载旧、装载新）。
 
@@ -616,10 +618,16 @@ public readonly record struct OperationRecord(
 | 8 数据存储 `Storage`+`Nodes.Data` | 7 | Storage 适配器（Dapper + SQLite/SqlServer/MySql/Pg）+ 异步批量写入队列；追溯周期表 + **CSV 导出**（§9.5.2） | 批量写不阻塞 Execution 断言 + 追溯查询可取消 + CSV 流式分页可取消冒烟 | → 9 |
 | 9 追溯看板 · 存图 · 良率/产量统计 | 8 | 看板（§8 §9.1 §9.4）；良率 / 产量统计（§9.5.4）；原图 / 渲染图存图（§9.5.3）；结果预览（§9.5.1） | 看板与周期表 / 追溯**同源不另建第二份**断言 + 存图入 `trace_images` 归档冒烟 | → 10 |
 | 10 原生计算内核 P/Invoke + C ABI | 9 | native `vx_*.dll` + 体素 / 点云计算，可取消；native DLL 进程级装载一次（不随 ALC） | native 装载单测 + 取消热路径断言 + 与 `HalconEnginePool` 同语义（§6.3） | → 11 |
-| 11 应用层（操作记录与撤回 · 权限 · 追溯 · 预览 / 存图 / CSV / 统计收口） | 10 | §9 全层 + §9.5 四能力 + 本地化中英韩全套 | 全局 `UndoService` 覆盖全应用断言 + 权限 / 审计拒绝落表 + 双语注释抽查 + 三语资源回退链 | → 发布就绪（现场试点循环） |
+| 11 应用层（操作记录与撤回 · 权限 · 追溯 · 预览 / 存图 / CSV / 统计收口） | 10 | §9 全层 + §9.5 四能力 + 本地化中英韩全套 | 全局 `UndoService` 覆盖全应用断言 + 权限 / 审计拒绝落表 + 双语注释抽查 + 三语资源回退链 | → 12 |
+| 12 交互式连线（Nodify 拖拽建线 / 断线 + 合法性高亮） | 11 | `PendingConnection` 拖拽建线 / 连线右键断线 / 端口拖离断开全部关联；拖拽期实时合法性高亮（方向归一化、exec/data 类别、自连、成环、数据输入单源）；校验与保存时静态校验**同源**（ADR-016） | 建线 / 撤销 / 重做 + 反向拖拽归一化 + 类型 / 同向 / 自连 / 成环 / 单源拒绝 + 权限拒绝落审计 + 高亮三态 + 断线撤销 单测全绿 | → 13 |
+| 13 运行期实时数据（scope 值徽标 + 图像预览生产者） | 12 | 调度器在节点 `Completed` 后**即时快照**数据输出、回写 `IPort.Value` 并随事件上抛；画布端口值徽标；`VisionFrame`→PNG 入预览环 + 看板轻量刷新（ADR-017） | 快照仅含数据输出 / 即时捕获不串扰 / 端口回写单测 + 格式化与 PNG 编码单测 + 真实 vision 图端点实时链路端到端 + 预览环含编码帧断言 | → 14 |
+| 14 真实 Halcon 适配器（部署接缝 + 解析管线） | 13 | `IHalconAdapter` 接缝 + 进程级注册表 + `HalconVisionEngine` 门面；`CreateResolved` 解析管线（探测→适配器→回退）**永不抛**、留稳定原因码；`HalconDotNetAdapter` 仅部署期惰性加载骨架（ADR-018） | 解析四态 + 工厂异常降级留 detail + 代理路由 / 异常 / 取消 / dispose 幂等 + 注册表语义 单测全绿；**无 Halcon SDK 亦全绿** + App 启动冒烟 | → 15 |
+| 15 现场就绪加固（运行时能力自检 + 全局崩溃防护） | 14 | `RuntimeCapabilities` 启动自检（视觉 / 运动：真实 vs §6.3 回退，探测可注入）+ 会话日志留痕；`CrashGuard` 挂接 UI / 域 / 任务未处理异常，UI 异常记录后吞掉保活（ADR-019） | 能力四态单测 + 壳启动写能力日志 + 崩溃描述单测 + 三语能力键本地化；**无硬件全绿** + App 启动冒烟 | → 16 |
+| 16 未保存改动防护（正确脏判定 + 关闭/新建/载入守卫） | 15 | `UndoService.IsModifiedSinceSave` 以保存点路径快照逐项比对（撤销到保存点之下、回退后等深分支均判脏）；`ShellViewModel.HasUnsavedChanges` + `ConfirmDiscard`/`ConfirmClose`，`MainWindow.OnClosing` 拒绝关闭，提示 `dialog.discard` 本地化（ADR-020） | 脏态转换（推送/保存/撤销/重做/越点/等深分支/重做复原/清空）单测 + 壳关闭/新建按拒绝保留、按同意清空、干净不提示、三语提示单测全绿；**无硬件全绿** + App 启动冒烟 | → 17 |
+| 17 插件装载（目录扫描 + 每插件可回收 ALC） | 16 | `PluginHost` 三接缝（目录/程序集/注册器）+ `PluginCatalog`（`INodeFactory`+服务）+ `PluginLoadContext`（可回收，契约程序集与宿主共享）；壳启动扫描 `/plugins` 并接入 `CombinedNodeFactory`（ADR-021） | 目录语义 / 逐插件隔离 / 坏 DLL 报错不抛 / 真实 ALC 端到端装载样例插件 单测全绿 + 壳启动装载日志；**无外部依赖全绿** + App 启动冒烟 | → 发布就绪（现场试点循环） |
 
 - **闸门铁律**：上一阶段未全绿，不硬化后续阶段；验收只看可测判定，现场试点循环为末级确认。
-- **与里程碑的关系**：§13 上部 1~11 是**顺序**，本表把每一步翻译成**阶段 + 验收门**；里程碑编号不动、ADR-014（预览/存图/CSV/统计）与 ADR-015（阶段门）在此收口。
+- **与里程碑的关系**：§13 上部 1~17 是**顺序**，本表把每一步翻译成**阶段 + 验收门**；里程碑编号不动、ADR-014（预览/存图/CSV/统计）与 ADR-015（阶段门）在此收口。
 
 ---
 
@@ -656,3 +664,9 @@ public readonly record struct OperationRecord(
 | ADR-013 | **OpenCV 并行接入**：OpenCvSharp（`OpenCvEnginePool`）+ `HObject↔Mat` 桥节点 + `Nodes.OpenCV` 节点库；与 Halcon 并行不归并、桥节点数据互转 | ✅ 已定 | 补 Halcon 生态外算子/DNN/Onnx 推理；视觉链"HObject↔Mat 接龙"无阻 |
 | ADR-014 | **结果预览 · 存图 · CSV 导出 · 良率/产量统计** = 4 个 §9.5 子能力，全部基于 §8 周期表/追溯同一份事实：预览走快照池零重跑、存图入 `trace_images` 归档、CSV 走流式分页可取消（UTF-8 BOM/GBK 双编码）、统计为周期表聚合（良率看板） | ✅ 已定 | 预览不重跑算子、存图/统计/导出不另建第二份数据；追溯热路径零阻（§8.6 §9.5） |
 | ADR-015 | **阶段闸门（Stage Gate）= §13.1 主闸表**：只有上一层闸门全绿才开下一阶段；备案（§9.3 权限）+ 验收 = 可测判定（单测/CI/冒烟/性能预算），拒绝"看着行" | ✅ 已定 | 阶段式要求与验收标准落地；空转不进场、带病不硬闯下一阶段 |
+| ADR-016 | **交互式连线** = Nodify `PendingConnection` 拖拽建线 / 断线 + 拖拽期实时合法性高亮；建线校验复用内核 `GraphModel.ValidateLink`（与保存时静态校验**同源**），走全局撤销 + 审计（`link.connect`/`link.disconnect`） | ✅ 已定 | 建线合法性单一事实源，不出现"画布允许、保存才拦"；断线可撤销、拒绝留痕 |
+| ADR-017 | **运行期实时数据** = 调度器节点 `Completed` 后**逐节点即时快照**数据输出（回写 `IPort.Value` + 随事件上抛，规避扁平 tag 表同名覆盖）+ 端口值徽标 + `VisionFrame`→PNG 入预览环（零重跑）；UI 侧轻量刷新不重查追溯源 | ✅ 已定 | 执行语义零改动；实时值不串扰、预览不阻塞执行热路径 |
+| ADR-018 | **真实 Halcon 适配器** = 部署期 `IHalconAdapter` 接缝 + 进程级 `HalconAdapterRegistry` + `HalconVisionEngine` 门面；`VisionEngineFactory.CreateResolved` 解析管线**永不抛**（无运行时/未接适配器一律确定性幻影回退 + 稳定原因码）；halcondotnet 由 `HalconDotNetAdapter` 经 `Assembly.LoadFrom` 惰性加载（无编译期引用） | ✅ 已定 | 本库无 Halcon SDK 亦可编译 + 全单测绿；部署机接适配器即切真实引擎；探测到但未接不再崩，显式回退可审计 |
+| ADR-019 | **现场就绪加固** = 运行时能力自检（`RuntimeCapabilities`：视觉 / 运动 真实 vs §6.3 回退，探测可注入）+ 全局崩溃防护（`CrashGuard`：UI 异常记录后吞掉保活、域 / 任务异常尽力留痕） | ✅ 已定 | 各解析结果不再算完即丢，现场可分辨真实/幻影;未处理异常降级为可见日志而非进程消失 |
+| ADR-020 | **未保存改动防护** = `UndoService.IsModifiedSinceSave` 以保存点**路径快照**逐项比对（非仅栈深）；`ShellViewModel` 暴露 `HasUnsavedChanges`/`ConfirmClose`，`MainWindow.OnClosing` 与 `New`/`Load` 共用 `ConfirmDiscard`，提示走本地化键 | ✅ 已定 | 撤销越保存点、回退后等深分支等旧逻辑漏判被修正；关闭/新建/载入不再静默丢改动 |
+| ADR-021 | **插件装载** = `PluginHost`（目录/程序集/注册器三接缝，逐插件隔离、坏插件只报告不抛出）+ `PluginCatalog`（实现 `INodeFactory`，契约→工厂 + 服务，后注册覆盖）+ `PluginLoadContext`（可回收 ALC，`Abstractions`/`Core` 与宿主共享以保类型同一）；壳启动扫描 `/plugins` 接入 `CombinedNodeFactory` | ✅ 已定 | 现场放置 DLL 即注册新节点契约，无需重启；单插件损坏不影响宿主与其它插件；映射文件随可回收上下文卸载释放 |

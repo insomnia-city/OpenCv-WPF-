@@ -41,6 +41,8 @@
   Protocols/       # Modbus / S7 / OpcUa / Mc / Fins / Mqtt / Tcp / Serial
   MotionDrivers/   # 固高/正运动/雷赛/凌华 运动卡驱动插件
   Storage/         # Sqlite / SqlServer / MySql / Postgres 数据访问（Dapper）
+  Plugins/         # 插件宿主：目录扫描 + 每插件可回收 AssemblyLoadContext + 契约/服务目录（ADR-007）
+  SamplePlugin/    # 外部插件样例（构建期投入 App.Tests 的 /plugins，端到端验证装载）
   App/             # WPF Shell、面板、主题
   Runtime/         # 无头执行宿主（生产模式/服务化）
 /plugins           # 外部节点与协议插件目录（独立 AssemblyLoadContext 装载）
@@ -192,12 +194,69 @@
 **阶段 11（应用层收口：§9 全层 · §9.5 四能力 · 三语）已落地**：
 - 全局撤回收口（§9.2）— 画布删除经 `MainEditorViewModel.RemoveAsyncHandler` 接入壳层唯一 `UndoService`；`ShellViewModel.ConfirmDiscard` 改用 `IDialogService.Confirm`（VM 不再直接调 WPF `MessageBox`，破坏性流程可测）；新建/载入清空全局栈、保存锚定保存点
 - 权限/审计收口（§9.3）— 只读角色的编辑与运行尝试均被拒并落 `operation_records`（`access.denied` + 动作对象 + 用户）
-- 本地化收口（§4.8/ADR-010）— `LocalizationService` 增 `zh` 双字母别名（`zh-CN`/`zh-Hant` 仍解析中文）；中/英/韩三语词条数完全对齐（95 键），未知语言回退英文、缺键回显键名，永不空白
+- 本地化收口（§4.8/ADR-010）— `LocalizationService` 增 `zh` 双字母别名（`zh-CN`/`zh-Hant` 仍解析中文）；中/英/韩三语词条数完全对齐（101 键），未知语言回退英文、缺键回显键名，永不空白
 - 双语注释收口（§4.9）— `src/Runtime/Program.cs` 补齐英中双语注释，生产源码 100% 含中文注释
 - 阶段闸门（§13.1 第 11 行）：`src/App.Tests/Stage11GateTests.cs` — 6 项：**全局 `UndoService` 覆盖全应用**（调色板添加+属性面板改参+画布删除同栈逆序回滚、新建/载入清空栈）、**权限拒绝落表**、**三语词条完整 + 回退链**、**双语注释全量抽查**
 - 全解决方案：**236 项单测全绿**（36 Core + 11 Runtime + 45 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
 
-> 下一步（发布就绪 / 现场试点循环）：交互式连线（Nodify PendingConnection 拖拽建线/断线）、运行期实时数据（scope 值/图像预览生产者接线）、真实 Halcon 适配器（部署机接入 $MVTEC）。
+**阶段 12（交互式连线：Nodify PendingConnection 拖拽建线/断线 + 合法性高亮）已落地**：
+- `ShellViewModel` — 连通 `ConnectionStartedCommand`/`ConnectionCompletedCommand`/`DisconnectConnectorCommand`（NodifyEditor 拖拽触发）；`_pendingSource` 缓存起始端口；拖拽期间对全图端口做**实时合法性高亮**
+  - `UpdateConnectHighlights`/`JudgeTarget`/`ClearConnectHighlights` — 源端口以外的全部端口按 `Valid`/`Invalid` 点亮：反向拖拽自动按 输出→输入 归一化，exec/data 类别不匹配、同节点自连、将成环、**数据输入端口单一来源**均判 `Invalid`（红），类型兼容方向正确判 `Valid`（绿）
+  - `ConnectAsync` — 权限 `EnsureAllowed(link.connect)` → 运行中禁止 → 内核 `GraphModel.ValidateLink`（与保存时静态校验**同源**）→ 全局撤销命令入栈 → 审计 `link.connect`；错误消息本地化 `link.error.direction/type/cycle/invalid/singleSource`
+  - `DisconnectConnectionAsync`/`DisconnectConnectorAsync` — 连线右键菜单断线 / 端口拖离断开全部关联，走同一撤销+审计通道（`link.disconnect`），AuditActions 复用既有 `"link.connect"`/`"link.disconnect"` 动作码
+- `PortViewModel` — `ConnectState`(None/Valid/Invalid) + `Highlight` 通知属性；端口模板叠加高亮描边环（`ConnectStateToBrushConverter`：透明/绿 #4CAF50/红 #E53935）与透明热区 `nod:Connector`（`PortConnectorStyle`）
+- `ConnectionViewModel` — `DisconnectCommand`/`DisconnectLabel`（本地化 "断开"）+ 右键 ContextMenu（`{Binding DisconnectLabel}`/`{Binding DisconnectCommand}`）；断线回调由 `MainEditorViewModel.RebindConnections` 注入
+- `App.xaml`/`MainWindow.xaml` — `PendingConnectionTemplate`（`nod:PendingConnection` 虚线预演 #FF4FC3F7）+ NodifyEditor 绑定三项命令；`OnCultureChanged` 触发 `RebindConnections` 刷新菜单文案
+- `LocalizationService` — +6 键 `link.disconnect`/`link.error.*`（三语对齐 → 101 键）
+- `src/App.Tests/ConnectionInteractionTests.cs` — 13 项验收：建线/撤销/重做、反向拖拽归一化、类型不匹配/同向连线/自连/成环/数据输入单源 拒绝、权限拒绝落审计、拖拽高亮三态与落点清除、右键断线经撤销恢复、端口断线移除全部关联（逐条可撤销）、审计落表
+- 全解决方案：**249 项单测全绿**（36 Core + 11 Runtime + 58 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（画布拖拽建线高亮指引 + 连线右键断开）
+
+**阶段 13（运行期实时数据：scope 值徽标 + 图像预览生产者接线）已落地**：
+- 内核值快照（§5.4，最小改动不动执行语义）— `NodeExecutionEvent` 追加可选 `Values`；`GraphScheduler.ExecuteCycleAsync` 在节点 `Completed` 后**立即**对其全部数据输出端口读共享 tag 表：
+  - **逐节点即时捕获**（扁平 tag 表下同名端口不互相污染）、回写 `IPort.Value` 引用（`IPort` 本就定义为"数据端口传递的引用"）、随事件携带供 UI 消费；控制流端口从不参与
+- 画布 scope 值徽标 — `PortViewModel.ValueText` 可绑定属性；`RuntimeValueFormatter`（App/Services）把对象格式化为短文本（`VisionFrame→320×240 Gray8`、`MeasurementResult→d=12.50px e=4`、数字/字符串/数组）；Input/Output 端口模板在端口名下加一行小字值徽标（空串自动收缩，exec 端口不受影响，`SlotHeight` 不变锚点不变）；`ShellViewModel.OnNodeEvent` 把 `Values` 格式化到各输出端口投影
+- 图像预览生产者（§9.5.1）— `VisionPreviewEncoder`（App/Services，WPF `PngBitmapEncoder`，无需新包）把 `VisionFrame`(Gray8/Bgr8/Bgra8) 编码为 PNG 字节；`OnNodeEvent` 发现节点输出含 `VisionFrame` 即编码并按节点 `PreviewRing.Publish`，随后 `Dashboard.PushPreview()` **只重绘预览区、不重查追溯源**做运行中轻量刷新（受 `PreviewRing.Enabled` 门控，高吞吐可关闭）；`DashboardViewModel` 新增公开 `PushPreview()`
+- `src/Core.Tests/RuntimeValueSnapshotTests.cs` — 4 项：快照仅含数据输出（exec 不捕获）、逐节点即时捕获不串扰（cam 快照无 Region）、端口 `Value` 回写（exec 恒 null）、Started/Faulted 事件无值
+- `src/App.Tests/` — 11 项：`RuntimeValueFormatterTests`（6：null 空串/数字/帧/测量/字节数组/长串截断）、`VisionPreviewEncoderTests`（3：Gray8 PNG 往返解码校验、多通道编码、null）、`LiveDataFlowTests`（2：真实 vision 图经壳层运行→徽标有值/exec 恒空/预览环含编码帧/看板预览实时跟进 + 运行后内核端口保留上轮值）
+- 全解决方案：**264 项单测全绿**（40 Core + 11 Runtime + 69 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（运行中节点端口显示实时值，看板结果预览实时出图）
+
+**阶段 14（真实 Halcon 适配器：部署接缝 + 解析管线，本机无 SDK 亦全可测）已落地**：
+- 解析管线替换桩抛异常 — `VisionEngineFactory.CreateResolved(forcePhantom, out EngineResolution)`：探测到运行时但未接适配器时**不再抛 `PlatformNotSupportedException`**，而是干净降级幻影并留稳定原因码（`forced`/`no-halcon-runtime`/`halcon-unwired`/`halcon-adapter-failed`/`halcon-adapter`）；解析**永不抛异常**
+- 部署接缝 — `IHalconAdapter`（出入参一律本库类型，与幻影注册表同构）+ `HalconAdapterRegistry`（进程级显式注册，后注册覆盖先注册，工厂抛异常回传 detail）；`HalconVisionEngine` 薄门面转发完整执行契约（标识/支持/参数路由/异常/取消）并恰好释放适配器一次
+- 部署骨架 — `HalconDotNetAdapter`（**仅部署期**）：经 `Assembly.LoadFrom` 惰性加载 halcondotnet（无编译期引用，本库无 Halcon 亦可编译），把 "grab/threshold/measure/hdev" 映射到真实 SDK;各算子给出正典 `HOperatorSet` 调用序列注释，主体为**显式未部署桩**（绝不静默造结果），由现场团队对照已装 SDK 实现并核实
+- `ShellViewModel` 引擎池改回 `CreateResolved()`（非强制）：现场有授权运行时且注册适配器即自动用真实引擎，开发/测试机无运行时则确定性幻影回退
+- `Nodes.Vision.Tests` — 20 项：解析四态（强制/无运行时/有运行时未接/已接）+ 适配器工厂抛异常降级留 detail、强制忽略已注册、已解析引擎经适配器路由、代理引擎标识/支持/路由/异常透传/取消透传/dispose 幂等、注册表 空工厂抛/后覆盖先/工厂失败 detail/注销清态（注册表相关测试经 `[Collection]` 串行化，杜绝静态态竞争）
+- 全解决方案：**284 项单测全绿**（40 Core + 11 Runtime + 69 App + 20 Nodes.Flow + 48 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（引擎池按环境解析，无 Halcon 机器走幻影回退）
+
+**阶段 15（现场就绪加固：运行时能力自检 + 全局崩溃防护）已落地**：
+- 能力自检 — `RuntimeCapabilities`（App/Services，探测可注入、无硬件可测）：报告**视觉引擎 / 运动控制**跑真实后端还是 §6.3 软回退；视觉判"真实"的前置条件（存在授权运行时 + 已注册部署适配器）与 `VisionEngineFactory` 同源
+- `ShellViewModel` 启动即把能力逐条写入会话日志（本地化标签 + 真实/回退 + 技术细节）并暴露 `Capabilities` 供 UI 绑定——此前各解析器算完即丢，现场无从分辨真实与幻影
+- 崩溃防护 — `CrashGuard.Install`（启动挂接 `DispatcherUnhandledException` / `AppDomain.UnhandledException` / `TaskScheduler.UnobservedTaskException`）：UI 异常记录后吞掉使外壳继续运行、其余两类尽力记录留痕；`Describe` 纯函数可单测，未处理异常不再静默消失
+- `LocalizationService` — +5 键 `capability.vision/motion/real/fallback/summary`（三语对齐 → 106 键）
+- `src/App.Tests/RuntimeCapabilitiesTests.cs` — 7 项：全真实、无运行时回退、有运行时未接适配器回退、运动回退透出探测消息、壳启动写能力日志（默认中文标签）、崩溃描述含来源/类型/消息、三语能力键本地化
+- 全解决方案：**291 项单测全绿**（40 Core + 11 Runtime + 76 App + 20 Nodes.Flow + 48 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（启动即记录运行能力，UI 异常不再导致进程消失）
+
+**阶段 16（未保存改动防护：正确脏判定 + 关闭/新建/载入守卫）已落地**：
+- 修正脏判定 — `UndoService.IsModifiedSinceSave` 以**保存点路径快照逐项比对**，而非仅比栈深：撤销到保存点之下、或回退后再走出等深分支，均正确判为已修改（旧的 `CanUndoToSavePoint` 在这两种情形会漏判）；`MarkSaved`/`Clear` 重置快照
+- 守卫 — `ShellViewModel.HasUnsavedChanges` + `ConfirmDiscard()`（干净图静默放行、仅脏图提示）+ 公开 `ConfirmClose()`；`MainWindow.OnClosing` 据此拒绝关闭，`New`/`Load` 复用同一判定
+- 本地化 — 放弃提示从硬编码英文改为 `dialog.discard`（三语齐加 → 107 键）
+- 测试 — `Nodes.Flow.Tests/UndoSmokeTests` +4（推送/保存/撤销/重做转换、回退后等深分支仍脏、回退再重做复原、`Clear` 重置）；`src/App.Tests/UnsavedChangesGuardTests.cs` 7 项（新壳干净且不提示、加节点转脏、撤销复原、关闭/新建按拒绝保留、按同意清空、干净不提示、中文本地化提示）
+- 全解决方案：**302 项单测全绿**（40 Core + 24 Nodes.Flow + 83 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+**阶段 17（插件装载：目录扫描 + 每插件可回收 AssemblyLoadContext）已落地**：
+- 新增 `src/Plugins/` — `PluginCatalog`（实现 `INodeFactory`：契约→工厂 + 服务，后注册覆盖、线程安全）、`PluginRegistrar`（`IPluginServiceRegistrar`→目录桥接）、`PluginLoadContext`（可回收 ALC；**契约程序集 `Abstractions`/`Core` 与宿主共享**以保证类型同一）、`PluginHost`（`LoadDirectory`/`LoadFromAssemblies`/`LoadFromRegistrars` 三接缝，逐插件隔离，**坏插件只报告不抛出**；`PluginLoadResult.Unload()` 触发卸载）；扫描跳过 `System/Microsoft/xunit/HalconWorkflow.*` 前缀
+- 壳层接线 — `ShellViewModel` 启动扫描 `AppContext.BaseDirectory/plugins`，逐插件写会话日志（成功/失败），暴露 `Plugins`，并把目录追加进 `CombinedNodeFactory`，使**图装载可解析插件契约**（ADR-007「现场不重启换节点」）
+- 样例 — `src/SamplePlugin/` 独立外部插件：注册 `sample.plugin:1` 节点 + 标记服务
+- 测试 — `src/Plugins.Tests/` 13 项（目录：解析/未知/版本不符/后注册覆盖/服务往返；宿主：良好注册器、抛异常隔离、程序集扫描、缺目录/空目录、坏 DLL 报错不抛、**真实 ALC 端到端装载样例插件**并解析契约）；`src/App.Tests/PluginStartupTests.cs` 1 项（构建期把 `SamplePlugin.dll` 投入 App.Tests 的 `/plugins`，验证壳层启动装载并日志）
+- 全解决方案：**316 项单测全绿**（40 Core + 24 Nodes.Flow + 84 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+> 阶段路线图代码阶段已落地。剩余为**现场发布就绪/试点**：在装有 $MVTEC 授权的部署机上实现并核实 `HalconDotNetAdapter` 各算子主体，跑通真实相机 grab/threshold/measure/hdev。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。
