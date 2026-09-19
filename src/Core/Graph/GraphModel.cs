@@ -222,12 +222,28 @@ public enum ValidationIssueKind
 }
 
 /// <summary>
-/// Graph trigger configuration. /* 图的触发配置 */
+/// Graph trigger configuration (§5.4). · 图的触发配置(§5.4)
 /// </summary>
 public sealed class TriggerConfig
 {
+    /// <summary>When false, only manual run commands drive the scheduler. · 为假时仅手动运行命令驱动调度器</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Trigger source. Timer / TagChange are honored only when <see cref="Enabled"/>.
+    /// · 触发来源。仅当 <see cref="Enabled"/> 时生效(定时/Tag 变化)
+    /// </summary>
     public TriggerSource Source { get; set; } = TriggerSource.Manual;
+
+    /// <summary>Tag pattern (device/area/name) used for TagChange subscriptions. · Tag 订阅使用的路径(device/area/name)</summary>
     public string? Tag { get; set; }
+
+    /// <summary>Coalescing window in ms handed to the scheduler (0 disables). · 交给调度器的合并去抖窗口(ms)</summary>
     public int DebounceMs { get; set; } = 10;
+
+    /// <summary>Scheduler queue limit per trigger source. · 每触发源的调度队列上限</summary>
     public int QueueLimit { get; set; } = 1;
+
+    /// <summary>Timer period in ms; UI clamps to ≥50. · 定时周期(ms)；界面层约束 ≥50</summary>
+    public int IntervalMs { get; set; } = 500;
 }

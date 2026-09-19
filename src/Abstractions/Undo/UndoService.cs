@@ -177,6 +177,13 @@ public static class GraphCommands
     public static IUndoableCommand Disconnect(GraphModel graph, GraphLink link)
         => new DisconnectImpl(graph, link);
 
+    /// <summary>
+    /// Applies a full trigger-config snapshot; undo restores the previous one. 
+    /// · 应用整份触发配置快照;撤销恢复原配置
+    /// </summary>
+    public static IUndoableCommand SetTrigger(GraphModel graph, TriggerConfig from, TriggerConfig to)
+        => new SetTriggerImpl(graph, from, to);
+
     private sealed class AddNodeImpl(GraphModel g, INode node, double x, double y) : IUndoableCommand, IGraphEditCommand
     {
         public string Description => $"Add node '{node.Id}'";
@@ -249,5 +256,25 @@ private sealed class RemoveNodeImpl(GraphModel g, string nodeId) : IUndoableComm
         public Task DoAsync(CancellationToken ct) { g.Disconnect(link); return Task.CompletedTask; }
         public Task UndoAsync(CancellationToken ct) { g.Connect(link.From, link.To); return Task.CompletedTask; }
         public Task RedoAsync(CancellationToken ct) => DoAsync(ct);
+    }
+
+    private sealed class SetTriggerImpl(GraphModel g, TriggerConfig from, TriggerConfig to) : IUndoableCommand
+    {
+        public string Description => "Set trigger config";
+
+        public Task DoAsync(CancellationToken ct) { CopyTo(to, g.Trigger); return Task.CompletedTask; }
+        public Task UndoAsync(CancellationToken ct) { CopyTo(from, g.Trigger); return Task.CompletedTask; }
+        public Task RedoAsync(CancellationToken ct) { CopyTo(to, g.Trigger); return Task.CompletedTask; }
+
+        /// <summary>Copies a snapshot into the live graph config (structure appears immutable from callers). · 把快照复制进图的实时配置</summary>
+        private static void CopyTo(TriggerConfig src, TriggerConfig dst)
+        {
+            dst.Enabled = src.Enabled;
+            dst.Source = src.Source;
+            dst.Tag = src.Tag;
+            dst.DebounceMs = src.DebounceMs;
+            dst.QueueLimit = src.QueueLimit;
+            dst.IntervalMs = src.IntervalMs;
+        }
     }
 }

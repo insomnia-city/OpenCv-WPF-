@@ -84,6 +84,44 @@ public class SerializationTests
     }
 
     [Fact]
+    public void TriggerConfig_RoundTrips_NewFields()
+    {
+        var graph = BuildSampleGraph();
+        graph.Trigger.Enabled = true;
+        graph.Trigger.Source = TriggerSource.TagChange;
+        graph.Trigger.Tag = "demo/coil/run";
+        graph.Trigger.DebounceMs = 7;
+        graph.Trigger.IntervalMs = 250;
+
+        var json = GraphJsonSerializer.Serialize(graph);
+        var restored = GraphJsonSerializer.Deserialize(json, new TestNodeFactory());
+
+        Assert.True(restored.Trigger.Enabled);
+        Assert.Equal(TriggerSource.TagChange, restored.Trigger.Source);
+        Assert.Equal("demo/coil/run", restored.Trigger.Tag);
+        Assert.Equal(7, restored.Trigger.DebounceMs);
+        Assert.Equal(250, restored.Trigger.IntervalMs);
+    }
+
+    [Fact]
+    public void LegacyTrigger_Document_DefaultsIdleManual()
+    {
+        // A pre-stage-20 doc lacks the enabled/intervalMs fields; defaults must kick in. · 阶段20 之前的文档没有 enabled/intervalMs 字段;须回退默认值
+        const string json = """
+            {"schema":"vision.workflow/graph","schemaVersion":1,
+             "trigger":{"source":"Timer","tag":"a/b/c","debounceMs":5,"queueLimit":1},
+             "nodes":[]}
+            """;
+        var restored = GraphJsonSerializer.Deserialize(json, new TestNodeFactory());
+
+        Assert.Equal(TriggerSource.Timer, restored.Trigger.Source); // source honored · 来源生效
+        Assert.False(restored.Trigger.Enabled);                     // but disabled by default · 但默认禁用
+        Assert.Equal(500, restored.Trigger.IntervalMs);
+        Assert.Equal(5, restored.Trigger.DebounceMs);
+        Assert.Equal("a/b/c", restored.Trigger.Tag);
+    }
+
+    [Fact]
     public void Recipe_RoundTrip_PreservesParams()
     {
         var recipe = new Recipe();

@@ -70,7 +70,11 @@ public sealed class LiveDataFlowTests : IDisposable
         Assert.NotNull(frame);
         Assert.NotNull(frame.Image);
         Assert.True(frame.Image.Length > 50, $"preview png too small: {frame.Image.Length}");
-        Assert.Equal(thr.Id, shell.Dashboard.PreviewNode);
+        // Both grab and threshold publish frames this cycle; when the system clock's tick
+        // granularity ties their CapturedAt the "latest" node is not guaranteed to be the last
+        // in execution order. · 本轮 grab 与 threshold 都发布帧;系统时钟粒度不足使 CapturedAt
+        // 并列时,「最新」节点不一定是执行顺序中的最后一个
+        Assert.Contains(shell.Dashboard.PreviewNode, new[] { grab.Id, thr.Id });
         Assert.True(shell.Dashboard.HasPreview);
     }
 

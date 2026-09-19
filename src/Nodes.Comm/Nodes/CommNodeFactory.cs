@@ -16,6 +16,7 @@ public sealed class CommNodeFactory : INodeFactory
         { Namespace: "comm.read", Version: 1 } => new CommReadNode(id),
         { Namespace: "comm.write", Version: 1 } => new CommWriteNode(id),
         { Namespace: "comm.wait", Version: 1 } => new CommWaitNode(id),
+        { Namespace: "comm.tagtrigger", Version: 1 } => new TagTriggerNode(id),
         _ => null,
     };
 }

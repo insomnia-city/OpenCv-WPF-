@@ -40,10 +40,14 @@ public static class AuditActions
     public const string Connect = "link.connect";
     public const string Disconnect = "link.disconnect";
     public const string SetParameter = "param.set";
+    public const string TriggerEdit = "trigger.edit";
     public const string Undo = "edit.undo";
     public const string Redo = "edit.redo";
     public const string Run = "run.start";
     public const string Stop = "run.stop";
+
+    /// <summary>Device catalog (device/tag definitions) persisted (§7.1, stage-21). · 设备目录被持久化(§7.1,阶段21)</summary>
+    public const string DeviceSave = "device.save";
 
     /// <summary>Data was read out to a file (CSV export). · 数据被导出为文件(CSV 导出)</summary>
     public const string Export = "data.export";
@@ -88,7 +92,9 @@ public static class RolePolicy
         AuditActions.NewGraph or AuditActions.LoadGraph or AuditActions.SaveGraph
             or AuditActions.AddNode or AuditActions.RemoveNode
             or AuditActions.Connect or AuditActions.Disconnect
-            or AuditActions.SetParameter or AuditActions.Undo or AuditActions.Redo
+            or AuditActions.SetParameter or AuditActions.TriggerEdit
+            or AuditActions.DeviceSave
+            or AuditActions.Undo or AuditActions.Redo
             => UserRole.Engineer,
         AuditActions.Run or AuditActions.Stop => UserRole.Operator,
         AuditActions.SetRole => UserRole.Admin,

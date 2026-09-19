@@ -2,6 +2,7 @@ using System.Diagnostics;
 using HalconWorkflow.Abstractions;
 using HalconWorkflow.Abstractions.Parameters;
 using HalconWorkflow.Core.Contracts;
+using HalconWorkflow.Core.Execution;
 using HalconWorkflow.Core.Model;
 using HalconWorkflow.Core.Types;
 using HalconWorkflow.Nodes.Comm.Nodes;
@@ -124,5 +125,122 @@ internal sealed class CommWaitNode(string id) : CommNodeBase(id, new NodeContrac
             if (met) { ctx.SetData("Value", value); return; }
             await Task.Delay(Params.PollMs, token).ConfigureAwait(false);
         }
+    }
+}
+
+public sealed class TagTriggerParameters
+{
+    [NodeParameter("DeviceId", "Connection", description: "Target device id · 目标设备ID")]
+    public string DeviceId { get; set; } = "";
+
+    [NodeParameter("Tag", "Address", description: "Tag path subscribed for changes · 订阅其变化的 Tag 路径")]
+    public string Tag { get; set; } = "";
+
+    [NodeParameter("DebounceMs", "Trigger", min: 10, max: 60000, unit: "ms", description: "Edge debounce after each emitted pulse · 每个已发脉冲后的边沿去抖")]
+    public int DebounceMs { get; set; } = 10;
+}
+
+/// <summary>
+/// comm.tagtrigger:1 — Subscribes a tag change and re-arms the scheduler pulse; on each
+/// cycle reports whether a change happened since the previous one. Pipeline-style engines
+/// run every node each cycle, so downstream gating is driven by the <c>Triggered</c>
+/// output, not by halting execution (§5.4). · 订阅 Tag 变化并重新武装调度脉冲;
+/// 每个周期报告自上个周期以来是否发生变化。流水线引擎每轮都执行所有节点,
+/// 因此下游门控由 Triggered 输出驱动而非中断执行(§5.4)。
+/// </summary>
+internal sealed class TagTriggerNode : CommNodeBase, IParameterized, IStoppableNode
+{
+    private readonly object _gate = new();
+    private IDisposable? _sub;
+    private ITriggerNudger? _nudger;
+    private long _count;
+    private int _pending;
+    private object? _lastValue;
+    private long _lastPulseTick;
+
+    public TagTriggerNode(string id) : base(id, new NodeContract("comm.tagtrigger", 1), execIn: true, execOut: true)
+    {
+        AddDataOut("Triggered", BoolDescriptor.Instance);
+        AddDataOut("Count", IntegerDescriptor.Instance);
+        AddDataOut("Value", ResultDescriptor.Instance);
+    }
+
+    public TagTriggerParameters Params { get; } = new();
+    object IParameterized.ParameterObject => Params;
+
+    protected override Task RunAsync(IExecutionContext ctx, CancellationToken ct)
+    {
+        var runtime = ctx.GetService<ICommRuntime>();
+        var device = runtime.Resolve(Params.DeviceId) ?? throw new InvalidOperationException($"device '{Params.DeviceId}' not registered");
+        EnsureSubscribed(device, ctx.GetService<ITriggerNudger>());
+
+        int changes;
+        object? value;
+        lock (_gate)
+        {
+            changes = _pending;
+            _pending = 0;
+            value = _lastValue;
+            if (changes > 0)
+            {
+                _count++;
+                _lastPulseTick = DateTimeOffset.UtcNow.Ticks;
+            }
+        }
+        ctx.SetData("Triggered", changes > 0);
+        ctx.SetData("Count", _count);
+        ctx.SetData("Value", changes > 0 ? value : null);
+        return Task.CompletedTask;
+    }
+
+    private void EnsureSubscribed(IDeviceConnection device, ITriggerNudger nudger)
+    {
+        lock (_gate)
+        {
+            _nudger = nudger;
+            if (_sub is not null) return;
+            _sub = device.Subscribe(Params.Tag).Subscribe(new ChangeObserver(OnChanged));
+        }
+    }
+
+    private sealed class ChangeObserver(Action<Abstractions.TagValue> onNext) : IObserver<Abstractions.TagValue>
+    {
+        public void OnCompleted() { }
+        public void OnError(Exception error) { }
+        public void OnNext(Abstractions.TagValue value) => onNext(value);
+    }
+
+    private void OnChanged(Abstractions.TagValue value)
+    {
+        var now = DateTimeOffset.UtcNow.Ticks;
+        var debounce = Math.Max(0, Params.DebounceMs) * System.TimeSpan.TicksPerMillisecond;
+        ITriggerNudger? nudger;
+        lock (_gate)
+        {
+            // Edge debounce: a change too close after the last emitted pulse is swallowed. · 边沿去抖：紧邻已发脉冲的变化被吞掉
+            if (_lastPulseTick != 0 && now - _lastPulseTick < debounce) return;
+            _pending++;
+            _lastValue = value.Value;
+            nudger = _nudger;
+        }
+        nudger?.Nudge(TriggerSource.Internal);
+    }
+
+    /// <inheritdoc />
+    public Task OnSchedulerStopAsync(CancellationToken ct)
+    {
+        IDisposable? sub;
+        lock (_gate)
+        {
+            sub = _sub;
+            _sub = null;
+            _pending = 0;
+            _count = 0;
+            _lastValue = null;
+            _lastPulseTick = 0;
+            _nudger = null;
+        }
+        sub?.Dispose();
+        return Task.CompletedTask;
     }
 }

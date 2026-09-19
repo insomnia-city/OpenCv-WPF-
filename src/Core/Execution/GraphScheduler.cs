@@ -138,17 +138,26 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
     public async Task StopAsync()
     {
         Task? loop;
+        IStoppableNode[]? stoppers;
         lock (_gate)
         {
             if (State == SchedulerState.Stopped) return;
             State = SchedulerState.Stopped;
             _loopCts?.Cancel();
             loop = _loopTask;
+            // Collect stoppable nodes so push-based nodes (tag triggers) can detach their
+            // subscriptions after the loop drains. · 收集可停止节点，使推送型节点(Tag 触发)能在循环排空后解除订阅
+            stoppers = _graph?.Nodes.Values.Select(g => g.Node).OfType<IStoppableNode>().ToArray();
         }
         if (loop is not null)
         {
             try { await loop.ConfigureAwait(false); }
             catch (OperationCanceledException) { }
+        }
+        if (stoppers is not null)
+        {
+            foreach (var node in stoppers)
+                await node.OnSchedulerStopAsync(CancellationToken.None).ConfigureAwait(false);
         }
     }
 

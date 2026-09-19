@@ -42,10 +42,12 @@ public static class GraphJsonSerializer
             ["schemaVersion"] = SchemaVersion,
             ["trigger"] = new JsonObject
             {
+                ["enabled"] = graph.Trigger.Enabled,
                 ["source"] = graph.Trigger.Source.ToString(),
                 ["tag"] = graph.Trigger.Tag,
                 ["debounceMs"] = graph.Trigger.DebounceMs,
-                ["queueLimit"] = graph.Trigger.QueueLimit
+                ["queueLimit"] = graph.Trigger.QueueLimit,
+                ["intervalMs"] = graph.Trigger.IntervalMs
             },
             ["nodes"] = new JsonArray(),
             ["links"] = new JsonArray()
@@ -84,6 +86,16 @@ public static class GraphJsonSerializer
     /// 反序列化图；未知契约为挂起节点(除非 throwOnUnknown=true)
     /// </summary>
     public static GraphModel Deserialize(string json, INodeFactory factory, bool throwOnUnknown = false)
+        => Load(json, factory, migrator: null, recipe: null, throwOnUnknown).Graph;
+
+    /// <summary>
+    /// Loads a graph with an optional migration pass (§12) and reports any suspended
+    /// nodes so the shell can offer recovery. The migrator may move legacy values into
+    /// <paramref name="recipe"/>. 
+    /// / 载入图，可选迁移链(§12)并报告挂起节点供壳层提供恢复。迁移器可把遗留值移入 recipe
+    /// </summary>
+    public static GraphLoadResult Load(string json, INodeFactory factory, GraphMigrator? migrator = null,
+        Recipe? recipe = null, bool throwOnUnknown = false)
     {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentNullException.ThrowIfNull(factory);
@@ -92,12 +104,31 @@ public static class GraphJsonSerializer
         {
             AllowTrailingCommas = true,
             CommentHandling = JsonCommentHandling.Skip
-        }) ?? throw new FormatException("Graph JSON is empty.");
+        }) as JsonObject ?? throw new FormatException("Graph JSON must be an object.");
 
         var schema = (string?)root["schema"];
         if (schema != Schema)
             throw new FormatException($"Unsupported schema '{schema}'. Expected '{Schema}'.");
 
+        var currentVersion = (int?)root["schemaVersion"] ?? SchemaVersion;
+        var report = migrator is not null
+            ? migrator.Migrate(root, recipe)
+            : new MigrationReport { FromSchemaVersion = currentVersion, ToSchemaVersion = currentVersion };
+
+        var graph = Build(root, factory, throwOnUnknown);
+        var suspended = graph.Nodes.Values
+            .Where(n => n.IsSuspended)
+            .Select(n => new SuspendedNodeInfo(n.Id, n.Contract, n.SuspensionReason))
+            .ToList();
+        return new GraphLoadResult(graph, report, suspended);
+    }
+
+    /// <summary>
+    /// Builds the graph from an already-parsed (and migrated) document root. 
+    /// / 从已解析(且已迁移)的文档根构建图
+    /// </summary>
+    private static GraphModel Build(JsonObject root, INodeFactory factory, bool throwOnUnknown)
+    {
         var graph = new GraphModel();
         var nodesByName = new Dictionary<string, GraphNode>(StringComparer.Ordinal);
 
@@ -105,10 +136,12 @@ public static class GraphJsonSerializer
         {
             graph.Trigger = new TriggerConfig
             {
+                Enabled = (bool?)tg["enabled"] ?? false,
                 Source = Enum.TryParse<TriggerSource>((string?)tg["source"], out var s) ? s : TriggerSource.Manual,
                 Tag = (string?)tg["tag"],
                 DebounceMs = (int?)tg["debounceMs"] ?? 10,
-                QueueLimit = (int?)tg["queueLimit"] ?? 1
+                QueueLimit = (int?)tg["queueLimit"] ?? 1,
+                IntervalMs = (int?)tg["intervalMs"] ?? 500
             };
         }
 
@@ -141,7 +174,11 @@ public static class GraphJsonSerializer
                 nodesByName[id] = graph.Nodes[id];
                 nodesByName[id].Position = (x, y);
                 nodesByName[id].RecipeId = (string?)jo["recipeId"];
-                nodesByName[id].IsSuspended = node is SuspendedNode || (bool?)jo["suspended"] == true;
+                // Suspension is resolved from the factory, not the persisted flag, so a node
+                // recovers once its plugin is loaded again (§12). · 挂起由工厂解析决定而非持久化标记,
+                // 插件重新装载后节点即恢复(§12)
+                nodesByName[id].IsSuspended = node is SuspendedNode;
+                nodesByName[id].SuspensionReason = (node as SuspendedNode)?.Reason;
             }
         }
 
@@ -210,6 +247,18 @@ public static class GraphJsonSerializer
 }
 
 /// <summary>
+/// A node that loaded as a suspended placeholder because its contract is missing (§12). 
+/// / 因契约缺失而作为挂起占位载入的节点(§12)
+/// </summary>
+public sealed record SuspendedNodeInfo(string Id, NodeContract Contract, string? Reason);
+
+/// <summary>
+/// Result of <see cref="GraphJsonSerializer.Load"/>: the graph plus what happened during load. 
+/// / Load 的结果：图本身以及载入过程信息
+/// </summary>
+public sealed record GraphLoadResult(GraphModel Graph, MigrationReport Migration, IReadOnlyList<SuspendedNodeInfo> Suspended);
+
+/// <summary>
 /// Placeholder node for missing contracts; throws at execution time. 
 /// 缺失契约的占位节点;执行时抛异常
 /// </summary>
@@ -231,6 +280,9 @@ public sealed class SuspendedNode : INode
 
     /// <inheritdoc />
     public NodeContract Contract { get; }
+
+    /// <summary>Why the node is suspended. · 挂起原因</summary>
+    public string Reason => _reason;
 
     /// <inheritdoc />
     public IReadOnlyList<IPort> Inputs { get; }

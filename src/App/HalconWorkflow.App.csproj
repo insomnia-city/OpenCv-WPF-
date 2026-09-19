@@ -15,6 +15,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="HalconWorkflow.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Core\HalconWorkflow.Core.csproj" />
     <ProjectReference Include="..\Abstractions\HalconWorkflow.Abstractions.csproj" />
     <ProjectReference Include="..\Runtime\HalconWorkflow.Runtime.csproj" />

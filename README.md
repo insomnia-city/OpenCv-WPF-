@@ -257,6 +257,38 @@
 - 全解决方案：**316 项单测全绿**（40 Core + 24 Nodes.Flow + 84 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
 
-> 阶段路线图代码阶段已落地。剩余为**现场发布就绪/试点**：在装有 $MVTEC 授权的部署机上实现并核实 `HalconDotNetAdapter` 各算子主体，跑通真实相机 grab/threshold/measure/hdev。
+**阶段 18（配方持久化闭环：拓扑 / 参数分离落盘）已落地**：
+- 新增 `src/Abstractions/Parameters/RecipeBinder.cs` — `Snapshot`/`Apply`（反射参数 ↔ `Recipe` JSON；枚举→字符串、数值按 `ParameterKind` 解码，未知键与坏值跳过不中断）+ `Capture`/`Restore`（按 `RecipeId`、缺省回退实例ID；捕获时清理已删节点条目、保留挂起节点条目）
+- 壳层接线 — `ShellViewModel` 在 `Save` 写伴生 `X.recipe.json`，`Load` 读回并还原到图节点（无配方文件回退默认值并记日志），`New` 复位配方
+- 测试 — `src/App.Tests/RecipePersistenceTests.cs` 4 项（快照类型化 / 容错拒绝越界与未知键 / 图级捕获清理删除节点 / 壳 保存→新建→载入 参数还原且生成伴生文件）
+- 全解决方案：**320 项单测全绿**（40 Core + 24 Nodes.Flow + 88 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+**阶段 19（schema 迁移链 + 挂起恢复提示）已落地**：
+- 新增 `src/Core/Serialization/GraphMigration.cs` — `IMigrator`（契约 N-1→N）、`IGraphSchemaMigrator`（文档级一步）、`GraphMigrator`（schema 链 + 逐契约链串联）、`MigrationReport`/`NodeMigration`、`LegacySchemaV0ToV1`
+- `GraphJsonSerializer.Load` — 迁移后重建图并返回 `GraphLoadResult`（图 + 迁移报告 + 挂起节点清单）；**挂起状态改由工厂解析决定**（插件重装即恢复）；`Deserialize` 保持兼容委托
+- 壳层接线 — `ShellViewModel` 打开老工程提示「已升级」，挂起节点可选保留/移除，升级后首次保存二次确认（三语键 `dialog.migrated` / `dialog.migratedSave` / `dialog.suspended`）
+- 本地化 — +3 键 `dialog.migrated`/`dialog.migratedSave`/`dialog.suspended`（三语齐加 → 110 键）
+- 测试 — `src/Core.Tests/MigrationTests.cs` 5 项（遗留文档 0→1 / 契约链 1→3 / `Load` 迁移报告 / 挂起原因与恢复 / 插件重装不再挂起）+ `src/App.Tests/MigrationLoadTests.cs` 5 项（升级确认/取消 / 挂起保留/移除 / 升级后保存二次确认）
+- 全解决方案：**330 项单测全绿**（45 Core + 24 Nodes.Flow + 93 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+**阶段 20（触发系统：定时 / Tag 变化 / `comm.tagtrigger` + 触发配置 UI）已落地**：
+- `Core` — `TriggerConfig` 扩展（`Enabled`、`IntervalMs` 默认 500），序列化往返 `enabled`/`intervalMs`（旧文档缺省回退）；`ITriggerNudger` + `ActionNudger`;`TriggerEngine`（`PeriodicTimer` 定时 / `ITagObserverSource` Tag 变化，`TimerPulses`/`TagPulses`/`Error`，停止幂等；Core 零项目引用，引擎不感知 TagValue）;`INode` 新增 `IStoppableNode`，`GraphScheduler.StopAsync`/`DisposeAsync` 对图内可停止节点逐个 `OnSchedulerStopAsync`
+- `Nodes.Comm` — `comm.tagtrigger:1` 节点（DeviceId/Tag/DebounceMs 10..60000 边沿去抖；输出 Triggered/Count/Value；首次执行订阅一次、调度停止解绑、重启重新武装；流水线引擎每轮全节点执行，下游由 `Triggered` 门控)
+- 壳层 — `GraphCommands.SetTrigger`（可撤销）+ 审计 `trigger.edit`（Engineer 起）+ 三语 +13 键（→ 123 键/语）;`IDialogService.EditTrigger`（默认接口实现 false，测试伪服务零改动）+ `TriggerSettingsViewModel`（Manual/Timer/TagChange，Apply 钳制 IntervalMs 50..3600000、取消不动配置）+ `TriggerSettingsDialog`;`ShellViewModel` 运行期注册 `ActionNudger`→`ITriggerNudger`、启动 `TriggerEngine`、`HasBackgroundTrigger`（Timer/TagChange 保持运行直到 Stop，手动单发仍首轮结束）;修正后台会话重复运行后 `_runCts` 被逐轮 Dispose 导致 Stop 崩溃的问题
+- 测试 — `src/Core.Tests/TriggerEngineTests.cs` 7 项 + `SchedulerStoppableTests` 2 项 + `SerializationTests` +2;`src/Nodes.Comm.Tests/TagTriggerNodeTests.cs` 6 项（契约端口/首次订阅幂等/零脉冲不触发/变化门控值/突发合并/边沿去抖/停止解绑重启再武装);`src/App.Tests/TriggerIntegrationTests.cs` 5 项（定时驱动多周期可停止、真 Modbus 回环 Tag 变化驱动周期、设置钳制、取消不动配置、编辑管线可撤销+审计）
+- 全解决方案：**352 项单测全绿**（56 Core + 24 Nodes.Flow + 98 App + 48 Nodes.Vision + 11 Runtime + 11 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活
+
+**阶段 21（设备目录 + Tag 表 + Modbus 重连/心跳）已落地**：
+- 协议层重连 — `ReconnectOptions`（InitialDelay/MaxDelay/Multiplier/MaxAttempts/HeartbeatMs/ConnectTimeoutMs）+ `ModbusTcpConnection` 断线自愈：`IoAsync` 捕获 IO/传输异常→`FaultTransport()`→指数退避后台重连（`ReconnectCount++`、`IsRecovering`、`LastError`、`State.Reconnecting`）；心跳循环（静默拔线→定时探活→重连）；`DisposeAsync` 取消 CTS
+- 设备目录 — `DeviceProfile`/`TagProfile`/`DeviceCatalogFile` + `DeviceCatalog`（枚举/校验/选择 + `CreateDemoCatalog` demo 设备 5 个 tag）+ `DeviceCatalogSerializer`（`Serialize`/`Deserialize`/`TryDeserialize` 往返幂等、坏文档回退 demo）
+- 壳层 — `ShellViewModel` gemini `DevicesFilePath`(`%LocalAppData%\HalconWorkflow\devices.json`)、启动 `LoadDeviceCatalog`（无文件回退 demo）、`BuildCommRuntime`→ `(CommRuntime, ModbusTcpSimulator?)`、`SaveDevices` RelayCommand（Engineer 起）+ 审计 `device.save`；`MainWindow` 工具栏保存按钮 + 三语 `menu.saveDevices`/`status.devicesSaved`
+- 测试 — `src/Protocols.Tests/DeviceCatalogAndReconnectTests.cs` 13 项（RST 拔线→自愈/指数退避上界/服务端放弃→有界重连/心跳→静默拔线/目录序列化往返/缺省回退/容错）；`ShellViewModelTests` 壳层目录往返 + 审计 `device.save`（App.Tests 保持 98）
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（启动即回退 demo 目录）
+- 全解决方案：**365 项单测全绿**（56 Core + 24 Nodes.Flow + 98 App + 48 Nodes.Vision + 11 Runtime + 24 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+
+> 已落地 1~21。后续按 P0→P4 排期：22 追加协议、23 调试、24 图像窗、25 诊断、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、30 设置页、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

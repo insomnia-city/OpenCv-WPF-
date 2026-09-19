@@ -54,6 +54,10 @@
                             Background="#FF2E7D32" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
                     <Button Content="{Binding MenuStop}" Command="{Binding StopCommand}" IsEnabled="{Binding CanOperate}" Padding="14,4"
                             Background="#FFB71C1C" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
+                    <Button Content="{Binding TriggerEditLabel}" Command="{Binding TriggerSettingsCommand}" IsEnabled="{Binding CanEdit}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuSaveDevices}" Command="{Binding SaveDevicesCommand}" IsEnabled="{Binding CanEdit}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                     <TextBlock Text="{Binding RoleLabel}" Foreground="{StaticResource TextOnToolBar}" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" />

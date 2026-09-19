@@ -124,7 +124,7 @@ public class ShellViewModelTests : IDisposable
     public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(25, shell.Palette.Count);
+        Assert.Equal(26, shell.Palette.Count); // + palette.tagTrigger (stage-20) · 含 stage-20 的 tagTrigger 项
         var grab = shell.Palette.First(p => p.Key == "grabber");
         Assert.Equal("vision.grab:1", grab.Contract);
         shell.AddNodeCommand.Execute(grab);

@@ -32,8 +32,23 @@ public interface INode
     /// </summary>
     NodeState State { get; }
 
-    /// <summary>
-    /// Executes the node. Must observe cancellation. /* 执行节点;必须遵守取消令牌 */
+/// <summary>
+    /// Executes the node. Must observe cancellation. · 执行节点;必须遵守取消令牌
     /// </summary>
     Task ExecuteAsync(IExecutionContext ctx, CancellationToken ct);
+}
+
+/// <summary>
+/// Optional lifecycle hook for nodes holding resources bound to a scheduler run
+/// (subscriptions, handles). The scheduler calls it on Stop so the node can detach
+/// cleanly; a later run re-arms on first Execute. · 持有与某次调度运行绑定的资源
+/// (订阅/句柄)的节点可选生命周期钩子：调度器在 Stop 时调用使节点干净解除；
+/// 下次运行时首个 Execute 重新武装。
+/// </summary>
+public interface IStoppableNode
+{
+    /// <summary>
+    /// Invoked by the scheduler after the trigger loop drains on stop. · 停止时触发循环排空后由调度器调用
+    /// </summary>
+    Task OnSchedulerStopAsync(CancellationToken ct);
 }

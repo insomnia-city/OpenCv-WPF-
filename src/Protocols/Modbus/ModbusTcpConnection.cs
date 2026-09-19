@@ -15,13 +15,20 @@ public sealed class ModbusTcpConnection : IDeviceConnection
     private readonly SemaphoreSlim _io = new(1, 1);
     private readonly object _stateGate = new();
     private readonly HashSet<(string Pattern, CancellationTokenSource Cts)> _subs = [];
+    private readonly ReconnectOptions _reconnect;
 
     private TcpClient? _client;
     private Stream? _stream;
     private static int _tid;
 
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private readonly object _recoveryGate = new();
+    private Task? _recoveryTask;
+    private bool _recovering;
+    private long _reconnectCount;
+
     public ModbusTcpConnection(string deviceId, string host, int port, byte unitId, ITagTable tagTable,
-        TimeSpan? pollInterval = null)
+        TimeSpan? pollInterval = null, ReconnectOptions? reconnect = null)
     {
         DeviceId = deviceId;
         Host = host;
@@ -29,6 +36,9 @@ public sealed class ModbusTcpConnection : IDeviceConnection
         UnitId = unitId;
         TagTable = tagTable;
         PollInterval = pollInterval ?? TimeSpan.FromMilliseconds(200);
+        _reconnect = reconnect ?? new ReconnectOptions();
+        if (_reconnect.HeartbeatMs > 0)
+            _ = HeartbeatLoopAsync();
     }
 
     public string ProtocolId => "modbus";
@@ -48,13 +58,30 @@ public sealed class ModbusTcpConnection : IDeviceConnection
     }
     private ConnectionState _state = ConnectionState.Disconnected;
 
+    /// <summary>True while the background recovery loop owns connecting. · 后台恢复循环正在负责连接时为真</summary>
+    public bool IsRecovering => _recovering;
+
+    /// <summary>Successful reconnects after a transport failure (heartbeat or I/O). · 传输故障后成功重连次数(心跳或 I/O)</summary>
+    public long ReconnectCount => Interlocked.Read(ref _reconnectCount);
+
+    /// <summary>Message of the last failed reconnect attempt, null after success. · 最近一次失败重连的消息,成功后为 null</summary>
+    public string? LastError { get; private set; }
+
     public async Task ConnectAsync(CancellationToken ct)
     {
-        lock (_stateGate)
+        if (!_recovering)
         {
-            if (_state == ConnectionState.Connected) return;
-            _state = ConnectionState.Connecting;
+            lock (_stateGate)
+            {
+                if (_state == ConnectionState.Connected) return;
+                _state = ConnectionState.Connecting;
+            }
         }
+        await ConnectCoreAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task ConnectCoreAsync(CancellationToken ct)
+    {
         try
         {
             var client = new TcpClient();
@@ -68,7 +95,9 @@ public sealed class ModbusTcpConnection : IDeviceConnection
             _client?.Dispose();
             _client = null;
             _stream = null;
-            lock (_stateGate) _state = ConnectionState.Disconnected;
+            // Recovery owns the state while reconnecting; don't flip to Disconnected mid-session.
+            // · 重连中由恢复循环独占状态,不要在会话中途翻回 Disconnected
+            if (!_recovering) StateWait(ConnectionState.Disconnected);
             throw new InvalidOperationException($"modbus connect {DeviceId}@{Host}:{Port} failed: {ex.Message}", ex);
         }
     }
@@ -107,6 +136,13 @@ public sealed class ModbusTcpConnection : IDeviceConnection
 
     public async ValueTask DisposeAsync()
     {
+        _lifetimeCts.Cancel();
+        var recovery = _recoveryTask;
+        if (recovery is not null)
+        {
+            try { await recovery.ConfigureAwait(false); }
+            catch { /* best effort · 尽力而为 */ }
+        }
         List<CancellationTokenSource>? subs;
         lock (_stateGate)
         {
@@ -120,6 +156,7 @@ public sealed class ModbusTcpConnection : IDeviceConnection
         _client = null;
         if (stream is not null) await stream.DisposeAsync().ConfigureAwait(false);
         client?.Dispose();
+        _lifetimeCts.Dispose();
         lock (_stateGate) _state = ConnectionState.Disconnected;
         _io.Dispose();
     }
@@ -132,13 +169,158 @@ public sealed class ModbusTcpConnection : IDeviceConnection
         await _io.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (_recovering)
+                throw new InvalidOperationException(
+                    $"device '{DeviceId}' is reconnecting. · 设备 '{DeviceId}' 正在重连。");
             if (_stream is null) await ConnectAsync(ct).ConfigureAwait(false);
             var stream = _stream ?? throw new InvalidOperationException("connection lost");
             return await op(stream, ct).ConfigureAwait(false);
         }
+        catch (Exception ex) when (IsTransportFailure(ex))
+        {
+            FaultTransport();
+            throw;
+        }
         finally
         {
             _io.Release();
+        }
+    }
+
+    private static bool IsTransportFailure(Exception ex) =>
+        ex is IOException or SocketException or ObjectDisposedException;
+
+    /// <summary>
+    /// Tears down the broken socket and, when recovery is enabled, starts the background
+    /// reconnect loop with exponential backoff. · 拆除故障套接字;开启恢复时按指数退避启动后台重连。
+    /// </summary>
+    private void FaultTransport()
+    {
+        TcpClient? client;
+        Stream? stream;
+        lock (_stateGate)
+        {
+            stream = _stream;
+            _stream = null;
+            client = _client;
+            _client = null;
+            if (_state == ConnectionState.Connected) _state = ConnectionState.Disconnected;
+        }
+        stream?.Dispose();
+        client?.Dispose();
+
+        lock (_recoveryGate)
+        {
+            if (_recovering) return;
+            _recovering = true;
+        }
+        _recoveryTask = Task.Run(RecoverLoopAsync);
+    }
+
+    private async Task RecoverLoopAsync()
+    {
+        StateWait(ConnectionState.Reconnecting);
+        var attempt = 0;
+        long delay = Math.Max(1, _reconnect.InitialDelayMs);
+        try
+        {
+            while (true)
+            {
+                using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+                attemptCts.CancelAfter(Math.Max(1, _reconnect.ConnectTimeoutMs));
+                try
+                {
+                    await ConnectCoreAsync(attemptCts.Token).ConfigureAwait(false);
+                    Interlocked.Increment(ref _reconnectCount);
+                    LastError = null;
+                    lock (_recoveryGate) _recovering = false;
+                    StateWait(ConnectionState.Connected);
+                    return;
+                }
+                catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    LastError = ex.Message;
+                }
+
+                attempt++;
+                if (_reconnect.MaxAttempts > 0 && attempt >= _reconnect.MaxAttempts)
+                {
+                    lock (_recoveryGate) _recovering = false;
+                    StateWait(ConnectionState.Disconnected);
+                    return;
+                }
+
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(delay), _lifetimeCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                delay = Math.Min((long)(delay * Math.Max(1.0, _reconnect.Multiplier)), Math.Max(1, _reconnect.MaxDelayMs));
+            }
+        }
+        finally
+        {
+            lock (_recoveryGate) _recovering = false;
+        }
+    }
+
+    private void StateWait(ConnectionState state)
+    {
+        lock (_stateGate) _state = state;
+    }
+
+    private async Task HeartbeatLoopAsync()
+    {
+        var probeTag = TagTable.All().FirstOrDefault(t => t.Readable)?.Tag;
+        if (probeTag is null) return;
+        try
+        {
+            while (!_lifetimeCts.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(50, _reconnect.HeartbeatMs)), _lifetimeCts.Token)
+                    .ConfigureAwait(false);
+                if (_recovering) continue;
+                lock (_stateGate)
+                {
+                    // The change-poller already covers liveness when subscribed. · 有轮询订阅时由轮询器负责存活
+                    if (_subs.Count > 0) continue;
+                    if (_state != ConnectionState.Connected) continue;
+                }
+                try
+                {
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+                    probeCts.CancelAfter(Math.Max(500, _reconnect.HeartbeatMs * 2));
+                    await ReadAsync(probeTag, probeCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!_lifetimeCts.IsCancellationRequested)
+                {
+                    // Silent drop: the peer never answered within the probe deadline. · 静默断开:超时无应答
+                    FaultTransport();
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+                catch (Exception ex) when (IsTransportFailure(ex))
+                {
+                    FaultTransport();
+                }
+                catch (Exception)
+                {
+                    // Protocol-level errors are not liveness failures. · 协议级错误不算存活故障
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // shutdown · 释放
         }
     }
 
@@ -209,7 +391,7 @@ public sealed class ModbusTcpConnection : IDeviceConnection
                     var quality = Quality.Good;
                     try
                     {
-                        if (_stream is null) await ConnectAsync(ct).ConfigureAwait(false);
+                        if (_stream is null && !_recovering) await ConnectAsync(ct).ConfigureAwait(false);
                         value = await ReadAsync(entry.Tag, ct).ConfigureAwait(false);
                         changed = !cache.TryGetValue(entry.Tag, out var old) || !Equals(old, value);
                     }

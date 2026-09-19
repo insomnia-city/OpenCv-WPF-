@@ -24,7 +24,9 @@ using HalconWorkflow.Nodes.Vision.Imaging;
 using HalconWorkflow.Nodes.Vision.Nodes;
 using HalconWorkflow.Plugins;
 using HalconWorkflow.Protocols;
+using HalconWorkflow.Protocols.Devices;
 using HalconWorkflow.Protocols.Modbus;
+using HalconWorkflow.Protocols.Serialization;
 using HalconWorkflow.Runtime.Nodes;
 using HalconWorkflow.Storage;
 
@@ -41,6 +43,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 {
     internal const string GraphFilter = "Halcon Graph (*.graph.json)|*.graph.json|All files (*.*)|*.*";
 
+    /// <summary>
+    /// Device catalog location shared with the trace database (§7.1 stage-21): user-level,
+    /// survives restarts, and is git-ignored by the environment. · 设备目录存储位置,与追溯库同目录
+    /// (§7.1 阶段21)：用户级、跨重启保留,环境中不入库。
+    /// </summary>
+    internal static string DevicesFilePath { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "HalconWorkflow", "devices.json");
+
     private readonly LocalizationService _loc;
     private readonly IDialogService _dialogs;
     private readonly SynchronizationContext? _ui;
@@ -52,7 +63,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly VisionEnginePool _visionPool = new(
         () => VisionEngineFactory.CreateResolved(), capacity: 2);
     private readonly CommRuntime _comm;
-    private readonly ModbusTcpSimulator _commSim;
+    // Null when no catalog entry is a loopback simulator (e.g. all real PLC profiles).
+    // · 目录中没有回环模拟器设备时为 null(如全为真实 PLC 配置)。
+    private readonly ModbusTcpSimulator? _commSim;
     private readonly MotionRuntime _motion;
     private readonly DataRuntime _data;
     private readonly StatsService _stats;
@@ -66,11 +79,22 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly Dictionary<IUndoableCommand, long> _auditIds = new(ReferenceEqualityComparer.Instance);
     private CancellationTokenSource? _runCts;
     private string? _currentPath;
+    // Loaded (or default demo) device catalog that the comm runtime is built from (§7.1 stage-21).
+    // · 已装载(或默认演示)设备目录,通讯运行时由它构建(§7.1 阶段21)。
+    private readonly DeviceCatalogFile _deviceFile;
+    private readonly string _devicesPath;
+    // Recipe persisted separately from topology (§5.8). · 与拓扑分开持久化的配方(§5.8)
+    private Recipe _recipe = new();
+    // Migration chain for legacy documents / contract versions (§12). · 遗留文档/契约版本的迁移链(§12)
+    private readonly GraphMigrator _migrator = new(schemaMigrators: [new LegacySchemaV0ToV1()]);
+    private bool _migratedSinceLoad;
     private bool _running;
     private int _seq;
     private int _paletteOffset;
     private NodeViewModel? _selectedNode;
     private PortViewModel? _pendingSource;
+    // Background trigger plane for this run (timer / tag-change pulses, §5.4 stage-20). · 本次运行的触发平面(定时/Tag 变化脉冲,§5.4 阶段20)
+    private TriggerEngine? _triggerEngine;
 
     /// <summary>Localization facade. · 本地化门面</summary>
     public LocalizationService Loc => _loc;
@@ -147,6 +171,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string MenuSave => _loc["menu.save"];
     public string MenuRun => _loc["menu.run"];
     public string MenuStop => _loc["menu.stop"];
+    public string TriggerEditLabel => _loc["trigger.edit"];
     public string MenuUndo => _loc["menu.undo"];
     public string MenuRedo => _loc["menu.redo"];
     public string MenuLanguage => _loc["menu.language"];
@@ -158,6 +183,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string TabDashboard => _loc["tab.dashboard"];
     public string TabAudit => _loc["tab.audit"];
     public string MenuUndoToSave => _loc["menu.undoToSave"];
+    public string MenuSaveDevices => _loc["menu.saveDevices"];
     public string RoleLabel => _loc["role.label"];
 
     /// <summary>Operating-system user stamped onto every audit entry (§9.1). · 写入每条审计的操作系统用户(§9.1)</summary>
@@ -209,7 +235,17 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public ShellViewModel(LocalizationService loc, IDialogService dialogs)
+        : this(loc, dialogs, DevicesFilePath)
     {
+    }
+
+    /// <summary>
+    /// Internal: injects the device-catalog path so tests isolate catalog state to a temp dir.
+    /// · 内部：注入设备目录路径,测试可将目录状态隔离到临时目录。
+    /// </summary>
+    internal ShellViewModel(LocalizationService loc, IDialogService dialogs, string devicesPath)
+    {
+        _devicesPath = devicesPath;
         _loc = loc;
         _dialogs = dialogs;
         _ui = SynchronizationContext.Current;
@@ -227,7 +263,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.NodeExecuted += OnNodeEvent;
         _scheduler.RunCompleted += OnRunCompleted;
         _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
-        (_comm, _commSim) = BuildCommRuntime();
+        _deviceFile = LoadDeviceCatalog();
+        (_comm, _commSim) = BuildCommRuntime(_deviceFile);
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
         _motion = BuildMotionRuntime();
         _scheduler.Services[typeof(IMotionRuntime)] = _motion;
@@ -306,23 +343,80 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
-    /// Builds a demo comm runtime hosting a loopback Modbus device (§7, stage-6).
-    /// The graph stays adapter-agnostic: swapping this for a real PLC only changes here.
-    /// / 构建演示通讯运行时，承载回环 Modbus 设备(§7,阶段6)。图保持适配器无关：
-    ///   换成真实 PLC 只需改动此处。
+    /// Loads the persisted device catalog, falling back to the default demo profile when
+    /// missing or malformed (§7.1, stage-21). The graph stays adapter-agnostic: swapping a
+    /// profile connects a real PLC instead of the loopback demo.
+    /// / 装载持久化设备目录；缺失或损坏时回退默认演示配置(§7.1,阶段21)。图保持适配器无关：
+    ///   更换配置即可连接真实 PLC 而非回环演示。
     /// </summary>
-    private static (CommRuntime Runtime, ModbusTcpSimulator Sim) BuildCommRuntime()
+    private DeviceCatalogFile LoadDeviceCatalog()
     {
-        var tags = new TagTable();
-        tags.Register(new TagTableEntry("demo/holding/speed", "demo", "holding:0", typeof(ushort), true, true));
-        tags.Register(new TagTableEntry("demo/holding/count", "demo", "holding:1", typeof(ushort), true, true));
-        tags.Register(new TagTableEntry("demo/coil/run", "demo", "coil:0", typeof(bool), true, true));
-        tags.Register(new TagTableEntry("demo/input/temp", "demo", "input:0", typeof(ushort), true, false));
-        tags.Register(new TagTableEntry("demo/discrete/ready", "demo", "discrete:0", typeof(bool), true, false));
-        var sim = ModbusTcpSimulator.Start();
+        try
+        {
+            if (File.Exists(_devicesPath))
+            {
+                var loaded = DeviceCatalogSerializer.TryDeserialize(File.ReadAllText(_devicesPath));
+                if (loaded is { Devices.Count: > 0 })
+                {
+                    Log.Add("info", $"Loaded {loaded.Devices.Count} device(s) from {_devicesPath}");
+                    return loaded;
+                }
+                Log.Add("warn", $"Ignoring empty/invalid device catalog '{_devicesPath}'; using demo profile");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Add("warn", $"Failed to load device catalog '{_devicesPath}': {ex.Message}");
+        }
+        var demo = DeviceCatalog.CreateDemoCatalog();
+        Log.Add("info", $"No device catalog yet; using demo profile ({demo.Devices[0].Tags.Count} tags). " +
+            "Save Devices to persist it. · 暂无设备目录,使用演示配置;点击『保存设备』持久化。");
+        return demo;
+    }
+
+    /// <summary>
+    /// Builds the comm runtime from persisted device profiles (§7.1, stage-21): every device
+    /// connection (loopback-simulated or real) auto-reconnects on transport failure. The graph
+    /// references tags by name and stays connection-agnostic.
+    /// / 按持久化设备配置构建通讯运行时(§7.1,阶段21)：回环模拟或真实连接在传输故障时自动重连。
+    ///   图按名引用 Tag,与连接方式无关。
+    /// </summary>
+    private (CommRuntime Runtime, ModbusTcpSimulator? Sim) BuildCommRuntime(DeviceCatalogFile catalog)
+    {
+        var tags = new DeviceCatalog(catalog).BuildTagTable();
+        var needsLoopback = catalog.Devices.Any(d => d.Loopback);
+        var sim = needsLoopback ? ModbusTcpSimulator.Start() : null;
         var runtime = new CommRuntime(tags);
-        runtime.Add(new ModbusTcpConnection("demo", "127.0.0.1", sim.Port, 1, tags));
+        foreach (var profile in catalog.Devices)
+            runtime.Add(new DeviceCatalog(catalog).CreateConnection(profile, tags, loopbackPort: sim?.Port));
         return (runtime, sim);
+    }
+
+    /// <summary>
+    /// Persists the current device catalog to the user data folder (§7.1, stage-21). On next
+    /// start the same devices/tags are restored; real PLC edits survive restarts too.
+    /// / 把当前设备目录持久化到用户数据目录(§7.1,阶段21)。下次启动即恢复相同设备/Tag;
+    ///   真实 PLC 的修改同样跨重启保留。
+    /// </summary>
+    [RelayCommand]
+    private void SaveDevices()
+    {
+        if (!EnsureAllowed(AuditActions.DeviceSave)) return;
+        try
+        {
+            var dir = Path.GetDirectoryName(_devicesPath)!;
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(_devicesPath, DeviceCatalogSerializer.Serialize(_deviceFile));
+            Log.Add("info", $"Saved {_deviceFile.Devices.Count} device(s) / " +
+                $"{_deviceFile.Devices.Sum(d => d.Tags.Count)} tag(s) to {_devicesPath}");
+            RecordAudit(AuditActions.DeviceSave, _devicesPath);
+            Status = _loc["status.devicesSaved"];
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+            Log.Add("error", $"Device save failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -376,7 +470,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _comm.DisposeAsync().ConfigureAwait(false);
-        await _commSim.DisposeAsync().ConfigureAwait(false);
+        if (_commSim is not null)
+            await _commSim.DisposeAsync().ConfigureAwait(false);
         await _motion.DisposeAsync().ConfigureAwait(false);
         await _data.DisposeAsync().ConfigureAwait(false);
         await _visionPool.DisposeAsync().ConfigureAwait(false);
@@ -406,6 +501,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Palette.Add(new NodeCatalogItem("read", _loc["palette.read"], "comm.read:1", id => comm.Create(new NodeContract("comm.read", 1), id)!));
         Palette.Add(new NodeCatalogItem("write", _loc["palette.write"], "comm.write:1", id => comm.Create(new NodeContract("comm.write", 1), id)!));
         Palette.Add(new NodeCatalogItem("wait", _loc["palette.wait"], "comm.wait:1", id => comm.Create(new NodeContract("comm.wait", 1), id)!));
+        Palette.Add(new NodeCatalogItem("tagTrigger", _loc["palette.tagTrigger"], "comm.tagtrigger:1", id => comm.Create(new NodeContract("comm.tagtrigger", 1), id)!));
         Palette.Add(new NodeCatalogItem("home", _loc["palette.home"], "motion.home:1", id => motion.Create(new NodeContract("motion.home", 1), id)!));
         Palette.Add(new NodeCatalogItem("moveAbs", _loc["palette.moveAbs"], "motion.moveAbs:1", id => motion.Create(new NodeContract("motion.moveAbs", 1), id)!));
         Palette.Add(new NodeCatalogItem("moveRel", _loc["palette.moveRel"], "motion.moveRel:1", id => motion.Create(new NodeContract("motion.moveRel", 1), id)!));
@@ -764,6 +860,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (!EnsureAllowed(AuditActions.NewGraph)) return;
         if (!ConfirmDiscard()) return;
         _currentPath = null;
+        _recipe = new();
+        _migratedSinceLoad = false;
         _undo.Clear();
         _auditIds.Clear();
         Editor.New();
@@ -785,11 +883,47 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (path is null) return;
         try
         {
-            var graph = GraphJsonSerializer.Deserialize(
-                File.ReadAllText(path),
-                new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory(), new DataNodeFactory(), _plugins));
+            var factory = new CombinedNodeFactory(new VisionNodeFactory(), new SampleNodeFactory(), new Nodes.Flow.FlowNodeFactory(), new CommNodeFactory(), new MotionNodeFactory(), new DataNodeFactory(), _plugins);
+            var recipePath = RecipePathFor(path);
+            var hasRecipe = File.Exists(recipePath);
+            _recipe = hasRecipe ? Recipe.Deserialize(File.ReadAllText(recipePath)) : new Recipe();
+
+            var result = GraphJsonSerializer.Load(File.ReadAllText(path), factory, _migrator, _recipe);
+            var graph = result.Graph;
+
+            if (result.Migration.HasChanges)
+            {
+                Log.Add("warn", $"Upgraded document schema {result.Migration.FromSchemaVersion}→{result.Migration.ToSchemaVersion} with {result.Migration.NodeMigrations.Count} node contract change(s)");
+                if (!_dialogs.Confirm(_loc.Get("dialog.migrated", result.Migration.ToSchemaVersion, result.Migration.NodeMigrations.Count)))
+                {
+                    Log.Add("warn", "Load cancelled at migration confirmation");
+                    return;
+                }
+                _migratedSinceLoad = true;
+            }
+            else
+            {
+                _migratedSinceLoad = false;
+            }
+
+            if (result.Suspended.Count > 0)
+            {
+                Log.Add("warn", $"Loaded {result.Suspended.Count} suspended node(s): {string.Join(", ", result.Suspended.Select(s => s.Id))}");
+                if (!_dialogs.Confirm(_loc.Get("dialog.suspended", result.Suspended.Count)))
+                {
+                    foreach (var s in result.Suspended) graph.RemoveNode(s.Id);
+                    Log.Add("warn", $"Removed {result.Suspended.Count} suspended node(s) on request");
+                }
+            }
+
             var issues = graph.Validate();
             foreach (var i in issues) Log.Add("warn", $"Validate: {i.Kind}: {i.Message}");
+
+            var restored = RecipeBinder.Restore(graph, _recipe);
+            Log.Add(hasRecipe ? "info" : "warn", hasRecipe
+                ? $"Applied recipe to {restored} node(s) from {recipePath}"
+                : $"No recipe beside {Path.GetFileName(path)}; using parameter defaults");
+
             _undo.Clear();
             _auditIds.Clear();
             _selectedNode = null;
@@ -820,14 +954,24 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             path = _dialogs.SaveGraphFile($"{Editor.Title}.graph.json", GraphFilter);
             if (path is null) return;
         }
+        if (_migratedSinceLoad && !_dialogs.Confirm(_loc["dialog.migratedSave"]))
+        {
+            Log.Add("warn", "Save cancelled at upgrade confirmation");
+            return;
+        }
         try
         {
             File.WriteAllText(path, GraphJsonSerializer.Serialize(Editor.Graph));
+            RecipeBinder.Capture(Editor.Graph, _recipe);
+            var recipePath = RecipePathFor(path);
+            File.WriteAllText(recipePath, Recipe.Serialize(_recipe));
             _currentPath = path;
+            _migratedSinceLoad = false;
             Editor.Title = Path.GetFileName(path);
             _undo.MarkSaved(); // edits above here are "unsaved" · 此点之上视为未保存
             RaiseUndoState();
             Log.Add("info", $"Saved {Editor.Graph.Nodes.Count} nodes / {Editor.Graph.Links.Count} links to {path}");
+            Log.Add("info", $"Saved recipe ({_recipe.Params.Count} node(s)) to {recipePath}");
             RecordAudit(AuditActions.SaveGraph, path);
         }
         catch (Exception ex)
@@ -835,6 +979,19 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             _dialogs.ReportError(ex.Message);
             Log.Add("error", $"Save failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Sidecar recipe path for a graph document (§5.8): <c>X.graph.json</c> pairs with
+    /// <c>X.recipe.json</c>; any other suffix becomes <c>path.recipe.json</c>. 
+    /// / 图文档的伴生配方路径(§5.8)：X.graph.json 对应 X.recipe.json;其它后缀追加 .recipe.json
+    /// </summary>
+    private static string RecipePathFor(string graphPath)
+    {
+        const string suffix = ".graph.json";
+        return graphPath.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)
+            ? graphPath[..^suffix.Length] + ".recipe.json"
+            : graphPath + ".recipe.json";
     }
 
     /// <summary>Runs one full cycle and keeps the scheduler live for triggers. · 运行一整轮并使调度器保持活动</summary>
@@ -855,6 +1012,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         RaiseUndoState();
         _runCts = new CancellationTokenSource();
         _scheduler.Load(Editor.Graph);
+        // Stage-20 trigger plane: debounce + background sources (timer / tag change) feeding the queue. · 阶段20 触发平面：去抖 + 后台源(定时/Tag 变化)喂入调度队列
+        _scheduler.DebounceMs = Editor.Graph.Trigger.DebounceMs;
+        var triggerConfig = Editor.Graph.Trigger;
+        var nudger = new ActionNudger(src => _scheduler.Trigger(src));
+        _scheduler.Services[typeof(ITriggerNudger)] = nudger;
+        _triggerEngine = new TriggerEngine(triggerConfig, src => _scheduler.Trigger(src), tagSources: TagSourceFor);
         RecordAudit(AuditActions.Run, _currentPath);
         Post(() =>
         {
@@ -862,8 +1025,35 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             Log.Add("info", "Run started");
         });
         await _scheduler.StartAsync(_runCts.Token);
+        _triggerEngine.Start();
         _scheduler.Trigger(TriggerSource.Manual);
         Status = _loc["status.ready"];
+    }
+
+    /// <summary>
+    /// Resolves a tag-pattern to a change source on the comm runtime; null when the device is
+    /// unknown (engine then stays idle on TagChange). · 把 Tag 模式解析为通讯运行时上的变化源;
+    /// 设备未知返回 null(引擎在 TagChange 下保持空闲)
+    /// </summary>
+    private ITagObserverSource? TagSourceFor(string pattern)
+    {
+        var deviceId = pattern.Split('/', 2)[0];
+        var conn = _comm.Resolve(deviceId);
+        return conn is null ? null : new CommTagSource(conn, pattern);
+    }
+
+    /// <summary>Adapts a device connection's <see cref="IDeviceConnection"/> observable into the engine seam. · 把设备连接的可观察序列适配为引擎缝</summary>
+    private sealed class CommTagSource(IDeviceConnection connection, string pattern) : ITagObserverSource
+    {
+        public IDisposable Subscribe(Action<object?> onNext)
+            => connection.Subscribe(pattern).Subscribe(new TagValueObserver(onNext));
+
+        private sealed class TagValueObserver(Action<object?> onNext) : IObserver<HalconWorkflow.Abstractions.TagValue>
+        {
+            public void OnCompleted() { }
+            public void OnError(Exception error) { }
+            public void OnNext(HalconWorkflow.Abstractions.TagValue value) => onNext(value.Value);
+        }
     }
 
     /// <summary>Stops the scheduler loop. · 停止调度器循环</summary>
@@ -872,8 +1062,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         if (!_running) return;
         if (!EnsureAllowed(AuditActions.Stop)) return;
+        if (_triggerEngine is not null) await _triggerEngine.StopAsync();
+        _triggerEngine = null;
         await _scheduler.StopAsync();
         _runCts?.Cancel();
+        _runCts?.Dispose();
+        _runCts = null;
         _running = false;
         OnPropertyChanged(nameof(IsRunning));
         RaiseUndoState();
@@ -881,6 +1075,46 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         RecordAudit(AuditActions.Stop, _currentPath);
         Status = _loc["status.ready"];
     }
+
+    /// <summary>
+    /// Opens the trigger-settings dialog; a confirmed edit lands as an undoable command and audits. 
+    /// · 打开触发设置对话框;确认的修改以可撤销命令落地并审计
+    /// </summary>
+    [RelayCommand]
+    private async Task TriggerSettingsAsync()
+    {
+        if (_running) return;
+        if (!EnsureAllowed(AuditActions.TriggerEdit)) return;
+        var before = Snapshot(Editor.Graph.Trigger);
+        var changed = _dialogs.EditTrigger(Editor.Graph.Trigger);
+        if (!changed) { Log.Add("info", "Trigger settings cancelled"); return; }
+        var after = Snapshot(Editor.Graph.Trigger);
+        var command = GraphCommands.SetTrigger(Editor.Graph, before, after);
+        try
+        {
+            await _undo.PushAndRunAsync(command, CancellationToken.None);
+            RaiseUndoState();
+            Log.Add("info", $"Trigger config: enabled={after.Enabled} source={after.Source}" +
+                $"{(after.Tag is { } t ? $" tag={t}" : "")} interval={after.IntervalMs}ms debounce={after.DebounceMs}ms");
+            await RecordAuditAsync(AuditActions.TriggerEdit, after.Source.ToString(),
+                after: $"{after.Enabled};{after.Source};{after.Tag};{after.IntervalMs};{after.DebounceMs}");
+        }
+        catch (Exception ex)
+        {
+            _dialogs.ReportError(ex.Message);
+        }
+    }
+
+    /// <summary>Snapshots a trigger config for undo before/after comparison. · 为撤销对比快照一份触发配置</summary>
+    private static TriggerConfig Snapshot(TriggerConfig config) => new()
+    {
+        Enabled = config.Enabled,
+        Source = config.Source,
+        Tag = config.Tag,
+        DebounceMs = config.DebounceMs,
+        QueueLimit = config.QueueLimit,
+        IntervalMs = config.IntervalMs
+    };
 
     private void OnNodeEvent(NodeExecutionEvent evt)
     {
@@ -935,15 +1169,31 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         Post(() =>
         {
-            _running = false;
-            OnPropertyChanged(nameof(IsRunning));
-            _runCts?.Dispose();
+            // One-shot (manual) sessions end when the first cycle completes; background-trigger
+            // sessions (timer / tag change) stay active until the user presses Stop (§5.4). 
+            // · 手动单发会话在首轮完成后结束;后台触发会话(定时/Tag 变化)保持运行直到用户停止(§5.4)。
+            if (!HasBackgroundTrigger)
+            {
+                _runCts?.Cancel();
+                _runCts?.Dispose();
+                _runCts = null;
+                _running = false;
+                OnPropertyChanged(nameof(IsRunning));
+            }
             Log.Add(result.Success ? "info" : "error",
                 $"Run finished: success={result.Success} ok={result.SucceededNodes} failed={result.FaultedNodes} ({result.Duration.TotalMilliseconds:F0}ms)");
             Status = result.Success ? _loc["status.ready"] : "Faulted";
             _ = Dashboard.RefreshCommand.ExecuteAsync(null);
         });
     }
+
+    /// <summary>
+    /// True when the graph config asks for a background pulse source that must run until stopped. 
+    /// · 图配置是否请求需运行到被停止的后台脉冲源
+    /// </summary>
+    private bool HasBackgroundTrigger =>
+        Editor.Graph.Trigger.Enabled
+        && Editor.Graph.Trigger.Source is TriggerSource.Timer or TriggerSource.TagChange;
 
     /// <summary>Projects the newest trace rows from the single "trace" source for the board (§9.4). · 为看板从唯一 "trace" 源投影最新追溯行</summary>
     private async Task<IReadOnlyList<TraceRow>> LoadTraceRowsAsync(CancellationToken ct)

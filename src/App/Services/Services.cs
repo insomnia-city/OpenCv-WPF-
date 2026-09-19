@@ -1,3 +1,7 @@
+using HalconWorkflow.Core.Graph;
+using HalconWorkflow.App.ViewModels;
+using HalconWorkflow.App.Views;
+
 namespace HalconWorkflow.App.Services;
 
 /// <summary>
@@ -25,6 +29,13 @@ public interface IDialogService
     ///   让破坏性流程(新建/载入)保持可测(§9.2)。
     /// </summary>
     bool Confirm(string message);
+
+    /// <summary>
+    /// Opens the trigger-settings dialog for the graph config; true when OK was pressed, in which
+    /// case the config reference was mutated. Default (test stubs) returns false without editing.
+    /// · 打开触发设置对话框编辑图形配置;确定返回 true 且已改写配置。默认实现(测试桩)返回 false 且不改写。
+    /// </summary>
+    bool EditTrigger(TriggerConfig config) => false;
 }
 
 /// <summary>
@@ -58,6 +69,13 @@ public sealed class WindowsDialogService : IDialogService
 
     public bool Confirm(string message) => System.Windows.MessageBox.Show(message, "Halcon Workflow",
         System.Windows.MessageBoxButton.OKCancel, System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.OK;
+
+    public bool EditTrigger(TriggerConfig config)
+    {
+        var vm = new TriggerSettingsViewModel(config, AppServices.Localization);
+        var dlg = new TriggerSettingsDialog(vm);
+        return dlg.ShowDialog() == true;
+    }
 }
 
 /// <summary>
