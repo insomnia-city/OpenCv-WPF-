@@ -154,6 +154,45 @@ public sealed class DebugIntegrationTests : IDisposable
         Assert.False(shell.IsRunning);
     }
 
+    [Fact]
+    public async Task DebugToolbar_GatingProps_FollowRunAndSelection()
+    {
+        var shell = CreateShell();
+        shell.Loc.Culture = new CultureInfo("en-US");
+        Add(shell, SampleNodes.Grabber("solo2"), 0, 0);
+
+        // Not running, no selection → nothing debug-actionable.
+        Assert.False(shell.CanPauseResume);
+        Assert.False(shell.CanStep);
+        Assert.False(shell.CanRerun);
+        Assert.False(shell.CanSetBreakpoint);
+        Assert.Equal("Pause", shell.MenuPauseResume);      // not paused → pause label
+
+        // A selection outside a session enables only breakpoint toggle.
+        var g = shell.Editor.Nodes[0];
+        shell.SelectNode(g);
+        Assert.True(shell.CanSetBreakpoint);
+        Assert.False(shell.CanRerun);
+
+        // Breakpoint on the grabber, then run: the session halts before it → live + paused.
+        shell.ToggleSelectedBreakpointCommand.Execute(null);
+        shell.RunCommand.Execute(null);
+        Assert.True(await WaitUntilAsync(() => shell.IsPaused, 8000), "run did not halt for toolbar gating");
+
+        Assert.True(shell.CanPauseResume);
+        Assert.True(shell.CanStep);                            // paused at breakpoint → step enabled
+        Assert.True(shell.CanRerun);                           // live + selection
+        Assert.False(shell.CanSetBreakpoint);                  // mid-session
+        Assert.Equal("Resume", shell.MenuPauseResume);         // paused → resume label
+
+        // Resume finishes the manual session; toolbar gates collapse.
+        shell.TogglePauseCommand.Execute(null);                // resume
+        Assert.True(await WaitUntilAsync(() => !shell.IsRunning, 8000), "manual run did not finish after resume");
+        Assert.False(shell.CanPauseResume);
+        Assert.False(shell.CanStep);
+        Assert.Equal("Pause", shell.MenuPauseResume);
+    }
+
     private static NodeViewModel Add(ShellViewModel shell, INode node, double x, double y)
         => shell.Editor.AddNode(node, x, y)!;
 

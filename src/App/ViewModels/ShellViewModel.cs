@@ -194,6 +194,12 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string MenuUndoToSave => _loc["menu.undoToSave"];
     public string MenuSaveDevices => _loc["menu.saveDevices"];
     public string MenuImageWindow => _loc["menu.imageWindow"];
+    public string MenuStep => _loc["menu.step"];
+    public string MenuRerun => _loc["menu.rerun"];
+    public string MenuBreakpoint => _loc["menu.breakpoint"];
+
+    /// <summary>Pause label while running, resume label while paused at a breakpoint. · 运行中为「暂停」，断点停驻时为「继续」</summary>
+    public string MenuPauseResume => IsPaused ? _loc["menu.resume"] : _loc["menu.pause"];
     public string RoleLabel => _loc["role.label"];
 
     /// <summary>Operating-system user stamped onto every audit entry (§9.1). · 写入每条审计的操作系统用户(§9.1)</summary>
@@ -213,6 +219,18 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>True when the graph is currently executing. · 正在执行标记</summary>
     public bool IsRunning => _running;
+
+    /// <summary>Pause/resume is available while a session is live (§23 toolbar). · 会话活动中可暂停/继续</summary>
+    public bool CanPauseResume => _running;
+
+    /// <summary>Single-step is available only while paused at a breakpoint. · 仅断点停驻时可单步</summary>
+    public bool CanStep => _running && IsPaused;
+
+    /// <summary>Rerun-from-node is available while live with a selection. · 会话活动中且有选区时可从节点重跑</summary>
+    public bool CanRerun => _running && _selectedNode is not null;
+
+    /// <summary>Breakpoint toggle is available outside a session with a selection. · 未运行且有选区时可切换断点</summary>
+    public bool CanSetBreakpoint => !_running && _selectedNode is not null && CanEdit;
 
     /// <summary>Undo availability for the toolbar. · 撤销可用状态</summary>
     public bool CanUndo => !_running && _undo.CanUndoCount > 0;
@@ -274,7 +292,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         BuildPalette();
         _scheduler.NodeExecuted += OnNodeEvent;
         _scheduler.RunCompleted += OnRunCompleted;
-        _scheduler.DebugPaused += id => Post(() => Status = $"{_loc["status.paused"]} {id}");
+        _scheduler.DebugPaused += id => Post(() => { Status = $"{_loc["status.paused"]} {id}"; RaiseDebugState(); });
         _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
         _deviceFile = LoadDeviceCatalog();
         (_comm, _commSim) = BuildCommRuntime(_deviceFile);
@@ -796,7 +814,22 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         OnPropertyChanged(nameof(CanRedo));
         OnPropertyChanged(nameof(CanUndoToSavePoint));
         OnPropertyChanged(nameof(HasUnsavedChanges));
+        RaiseDebugState();
     }
+
+    /// <summary>Raises the toolbar pause/step/rerun/breakpoint availability after run or selection changes. · 运行或选区变化后刷新调试工具栏可用性</summary>
+    private void RaiseDebugState()
+    {
+        OnPropertyChanged(nameof(IsPaused));
+        OnPropertyChanged(nameof(CanPauseResume));
+        OnPropertyChanged(nameof(CanStep));
+        OnPropertyChanged(nameof(CanRerun));
+        OnPropertyChanged(nameof(CanSetBreakpoint));
+        OnPropertyChanged(nameof(MenuPauseResume));
+    }
+
+    /// <summary>Refreshes debug-toolbar state on the UI thread after scheduler pause/step transitions. · 调度器暂停/单步切换后在 UI 线程刷新调试工具栏状态</summary>
+    private void PostDebugState() => Post(RaiseDebugState);
 
     private long? LinkOf(IUndoableCommand? command)
         => command is not null && _auditIds.TryGetValue(command, out var id) ? id : null;
@@ -822,6 +855,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _selectedNode = vm;
         vm.IsSelected = true;
         PropertyPanel.Show(SelectedKernel(vm)!, $"{vm.Id} · {vm.ContractDisplay}");
+        RaiseDebugState();
     }
 
     /// <summary>Clears the panel when the selected container is deselected. · 选中容器取消选中时清空面板</summary>
@@ -833,6 +867,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             _selectedNode = null;
             vm.IsSelected = false;
             PropertyPanel.Clear();
+            RaiseDebugState();
         }
     }
 
@@ -1102,6 +1137,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             _scheduler.Continue();
         else
             _scheduler.Pause();
+        PostDebugState();
     }
 
     /// <summary>Single-step: resume for one cycle then halt again. · 单步：继续一轮后再次停驻</summary>
@@ -1110,6 +1146,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         if (!_running || _scheduler.State != SchedulerState.Paused) return;
         _scheduler.Step();
+        PostDebugState();
     }
 
     /// <summary>Queues a rerun from the selected node behind the current cycle. · 从选中节点重跑，排于当前周期之后</summary>
@@ -1257,6 +1294,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
                 _runCts = null;
                 _running = false;
                 OnPropertyChanged(nameof(IsRunning));
+                RaiseDebugState();
             }
             Log.Add(result.Success ? "info" : "error",
                 $"Run finished: success={result.Success} ok={result.SucceededNodes} failed={result.FaultedNodes} ({result.Duration.TotalMilliseconds:F0}ms)");

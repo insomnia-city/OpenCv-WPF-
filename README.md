@@ -305,8 +305,9 @@
 - `NodeSnapshotCache`（Core）— 每节点最近 N 帧 `Roi/参数/图像` 快照环形缓冲（§5.7 中间快照缓存，出作用域/覆盖即放）
 - `ShellViewModel` — `ToggleSelectedBreakpoint` / `TogglePause` / `StepOnce` / `RerunFromSelected`（重跑前 `RecordAudit(RunRerun)`、并发结束 `InvalidOperationException` 吞掉）+ `OpenImageWindow`；会话结束门控 `!_scheduler.HasPendingRerun`（后台锥集跑完才收尾）；`NodeViewModel` 增 `IsBreakpoint`/`LastElapsedMsText` 徽标
 - 审计 — `AuditActions` 增 `RunStep`/`RunRerun`/`SetBreakpoint`（IAppServices）
-- 阶段闸门（§13.1 阶段23）：断点挂起/恢复 + 单步逐节点 + **重跑锥集（排队于暂停后→尾随完成→审计）**、无选区/未运行 no-op → `Core.Tests/SchedulerDebugTests.cs` **11 项** + `App.Tests/DebugIntegrationTests.cs` **6 项**
-- 全解决方案更新：**Core 56 → 67、App 98 → 104 项全绿**；修复 `Timer_EmitsPeriodicPulses` 固定睡眠竞态改轮询；无硬件全绿
+- 阶段闸门（§13.1 阶段23）：断点挂起/恢复 + 单步逐节点 + **重跑锥集（排队于暂停后→尾随完成→审计）**、无选区/未运行 no-op → `Core.Tests/SchedulerDebugTests.cs` **11 项** + `App.Tests/DebugIntegrationTests.cs` **7 项**
+- 工具栏接线（S23-UI 收口）：`MainWindow` 运行/停止旁新增 **暂停-继续（标签随停驻状态切换）/ 单步 / 从选中节点重跑 / 切换断点** 按钮；`ShellViewModel` 增 `CanPauseResume`/`CanStep`/`CanRerun`/`CanSetBreakpoint`+`MenuPauseResume` 门控件（随运行/选区/暂停切换经 `RaiseDebugState` 刷新）
+- 全解决方案更新：**Core 56 → 67、App 98 → 115 项全绿**；修复 `Timer_EmitsPeriodicPulses` 固定睡眠竞态改轮询；无硬件全绿
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（调试命令接线）
 
 **阶段 24（独立图像窗：快照缓存 + 节点过滤 + 历史回放）已落地（真实 WPF 窗口）**：
@@ -314,7 +315,7 @@
 - `ImageWindow`（App/Views/ImageWindow.xaml + .cs）— 真实 WPF 窗口：`DispatcherTimer` 在 UI 线程驱动 `Tick()`；工具栏（上/下一帧、刷新）+ 实时/ROI/十字线开关 + 历史计数；`BytesToImageConverter` 渲染快照
 - `IDialogService.ShowImageWindow(ImageWindowViewModel vm)`：`WindowsDialogService` 打开真实窗口（MessageBox 桩已移除）；`MainWindow` 工具栏「图像窗」按钮；`PreviewRing` 增 `Published` 事件
 - 专项测试：`App.Tests/ImageWindowViewModelTests.cs` **10 项**（订阅/退订幂等、重复打开幂等、节点过滤、Tick 只收最新、实时门控、历史导航边界、浏览中门控、清空不复活、从 Ring 冷启动、多语言文案）
-- 全解决方案：**412 项单测全绿**（67 Core + 24 Nodes.Flow + 114 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 全解决方案：**413 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
   - 注：协议/调试/图像窗三阶段账号见上；App 启动冒烟 6 秒存活
 
 > 已落地 1~24。后续按 P0→P4 排期：25 诊断视图（ScottPlot）、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、30 设置页、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。

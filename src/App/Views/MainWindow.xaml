@@ -54,6 +54,14 @@
                             Background="#FF2E7D32" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
                     <Button Content="{Binding MenuStop}" Command="{Binding StopCommand}" IsEnabled="{Binding CanOperate}" Padding="14,4"
                             Background="#FFB71C1C" Foreground="White" BorderThickness="0" FontWeight="SemiBold" />
+                    <Button Content="{Binding MenuPauseResume}" Command="{Binding TogglePauseCommand}" IsEnabled="{Binding CanPauseResume}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF455A64" Foreground="White" BorderThickness="0" />
+                    <Button Content="{Binding MenuStep}" Command="{Binding StepOnceCommand}" IsEnabled="{Binding CanStep}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuRerun}" Command="{Binding RerunFromSelectedCommand}" IsEnabled="{Binding CanRerun}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
+                    <Button Content="{Binding MenuBreakpoint}" Command="{Binding ToggleSelectedBreakpointCommand}" IsEnabled="{Binding CanSetBreakpoint}" Margin="6,0,0,0" Padding="10,4"
+                            Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                     <Button Content="{Binding TriggerEditLabel}" Command="{Binding TriggerSettingsCommand}" IsEnabled="{Binding CanEdit}" Margin="6,0,0,0" Padding="10,4"
                             Background="#FF37474F" Foreground="{StaticResource TextOnToolBar}" BorderThickness="0" />
                     <Button Content="{Binding MenuSaveDevices}" Command="{Binding SaveDevicesCommand}" IsEnabled="{Binding CanEdit}" Margin="6,0,0,0" Padding="10,4"
