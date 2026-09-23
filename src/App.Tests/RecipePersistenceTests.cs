@@ -48,6 +48,7 @@ public sealed class RecipePersistenceTests : IDisposable
         public string? SaveCsvFile(string defaultName) => null;
         public bool Confirm(string message) => true;
         public void ReportError(string message) { }
+        public void ShowImageWindow(string nodeId, string nodeLabel) { }
     }
 
     [Fact]

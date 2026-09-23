@@ -55,7 +55,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly LocalizationService _loc;
     private readonly IDialogService _dialogs;
     private readonly SynchronizationContext? _ui;
-    private readonly GraphScheduler _scheduler = new();
+    private readonly NodeSnapshotCache _snapshotCache;
+    private readonly GraphScheduler _scheduler;
     private readonly UndoService _undo = new();
     // Resolved at runtime: real Halcon adapter when the deployment site registers one and
     // a licensed runtime is present; otherwise the deterministic phantom fallback (§6.3).
@@ -95,6 +96,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private PortViewModel? _pendingSource;
     // Background trigger plane for this run (timer / tag-change pulses, §5.4 stage-20). · 本次运行的触发平面(定时/Tag 变化脉冲,§5.4 阶段20)
     private TriggerEngine? _triggerEngine;
+    // Stage-24 independent image window view model. · 阶段24 独立图像窗视图模型
+    private readonly ImageWindowViewModel _imageWindowVm;
+
+    /// <summary>True when the scheduler is currently paused at a breakpoint. · 调度器当前在断点处暂停 */
+    public bool IsPaused => _scheduler.State == SchedulerState.Paused;
 
     /// <summary>Localization facade. · 本地化门面</summary>
     public LocalizationService Loc => _loc;
@@ -131,6 +137,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>Bounded recent-frames ring for the result preview (§9.5.1). · 结果预览的最近帧有界环(§9.5.1)</summary>
     public PreviewRing Preview => _preview;
+
+    /// <summary>Stage-24 independent image window view model. · 阶段24 独立图像窗视图模型</summary>
+    public ImageWindowViewModel ImageWindowVm => _imageWindowVm;
 
     /// <summary>Append-only operation audit store, separate from the cycle trace (§9.1). · 独立于周期追溯的追加式操作审计存储(§9.1)</summary>
     public IAuditStore AuditStore => _audit;
@@ -184,6 +193,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string TabAudit => _loc["tab.audit"];
     public string MenuUndoToSave => _loc["menu.undoToSave"];
     public string MenuSaveDevices => _loc["menu.saveDevices"];
+    public string MenuImageWindow => _loc["menu.imageWindow"];
     public string RoleLabel => _loc["role.label"];
 
     /// <summary>Operating-system user stamped onto every audit entry (§9.1). · 写入每条审计的操作系统用户(§9.1)</summary>
@@ -249,6 +259,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _loc = loc;
         _dialogs = dialogs;
         _ui = SynchronizationContext.Current;
+        _snapshotCache = new NodeSnapshotCache();
+        _scheduler = new GraphScheduler(_snapshotCache);
         Editor = new MainEditorViewModel();
         Log = new LogViewModel();
         PropertyPanel = new PropertyPanelViewModel(loc);
@@ -262,6 +274,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         BuildPalette();
         _scheduler.NodeExecuted += OnNodeEvent;
         _scheduler.RunCompleted += OnRunCompleted;
+        _scheduler.DebugPaused += id => Post(() => Status = $"{_loc["status.paused"]} {id}");
         _scheduler.Services[typeof(IVisionEnginePool)] = _visionPool;
         _deviceFile = LoadDeviceCatalog();
         (_comm, _commSim) = BuildCommRuntime(_deviceFile);
@@ -274,6 +287,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(IImageArchive)] = _images;
         _scheduler.Services[typeof(PreviewRing)] = _preview;
         _scheduler.Services[typeof(IAuditStore)] = _audit;
+        _imageWindowVm = new ImageWindowViewModel(_loc, _preview);
         Dashboard = new DashboardViewModel(_loc, _stats, _preview, LoadTraceRowsAsync);
         Dashboard.ExportRequested += OnDashboardExport;
         AuditView = new AuditViewModel(_loc, _audit);
@@ -1056,6 +1070,64 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         }
     }
 
+    /// <summary>Opens the independent image window for the selected node. · 打开选中节点的独立图像窗</summary>
+    [RelayCommand]
+    private void OpenImageWindow()
+    {
+        var sel = _selectedNode;
+        if (sel is null) return;
+        _dialogs.ShowImageWindow(sel.Id, sel.Header);
+        _imageWindowVm.Open(sel.Id, sel.Header);
+    }
+
+    /// <summary>Toggles the selected node's breakpoint; audits the change. · 切换选中节点的断点;审计变更</summary>
+    [RelayCommand]
+    private void ToggleSelectedBreakpoint()
+    {
+        if (_selectedNode is null || _running) return;
+        if (_scheduler.IsBreakpoint(_selectedNode.Id))
+            _scheduler.RemoveBreakpoint(_selectedNode.Id);
+        else
+            _scheduler.AddBreakpoint(_selectedNode.Id);
+        _selectedNode.IsBreakpoint = _scheduler.IsBreakpoint(_selectedNode.Id);
+        RecordAudit(AuditActions.SetBreakpoint, _selectedNode.Id, after: _scheduler.IsBreakpoint(_selectedNode.Id).ToString());
+    }
+
+    /// <summary>Pauses/resumes the scheduler. · 暂停/继续调度器</summary>
+    [RelayCommand]
+    private void TogglePause()
+    {
+        if (!_running) return;
+        if (_scheduler.State == SchedulerState.Paused)
+            _scheduler.Continue();
+        else
+            _scheduler.Pause();
+    }
+
+    /// <summary>Single-step: resume for one cycle then halt again. · 单步：继续一轮后再次停驻</summary>
+    [RelayCommand]
+    private void StepOnce()
+    {
+        if (!_running || _scheduler.State != SchedulerState.Paused) return;
+        _scheduler.Step();
+    }
+
+    /// <summary>Queues a rerun from the selected node behind the current cycle. · 从选中节点重跑，排于当前周期之后</summary>
+    [RelayCommand]
+    private async void RerunFromSelected()
+    {
+        if (_selectedNode is null || !_running) return;
+        RecordAudit(AuditActions.RunRerun, _selectedNode.Id);
+        try
+        {
+            _ = await _scheduler.RunFromAsync(_selectedNode.Id, CancellationToken.None);
+        }
+        catch (InvalidOperationException)
+        {
+            // Session ended concurrently; ignore. · 会话并发结束,忽略
+        }
+    }
+
     /// <summary>Stops the scheduler loop. · 停止调度器循环</summary>
     [RelayCommand]
     private async Task StopAsync()
@@ -1124,6 +1196,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
             if (nv is not null)
             {
                 nv.State = MapPhase(evt.Phase);
+                if (evt.Phase == NodeExecutionPhase.Completed)
+                {
+                    nv.LastElapsedMsText = $"{evt.ElapsedMs} ms";
+                    nv.IsBreakpoint = _scheduler.IsBreakpoint(evt.NodeId);
+                }
                 if (evt.Values is not null)     // stage-13 live scope values · 阶段13 运行期 scope 值
                 {
                     foreach (var port in nv.Outputs.Where(p => p.IsData))
@@ -1169,10 +1246,11 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         Post(() =>
         {
-            // One-shot (manual) sessions end when the first cycle completes; background-trigger
-            // sessions (timer / tag change) stay active until the user presses Stop (§5.4). 
-            // · 手动单发会话在首轮完成后结束;后台触发会话(定时/Tag 变化)保持运行直到用户停止(§5.4)。
-            if (!HasBackgroundTrigger)
+            // One-shot (manual) sessions end when the first cycle completes, unless a
+            // rerun-from-node cone is still queued behind it — the session stays live
+            // until the cone completes too. · 手动单发会话在首轮完成后结束，除非其后仍有
+            // 排队的从节点重跑锥集——会话保持活动直到锥集也完成。
+            if (!HasBackgroundTrigger && !_scheduler.HasPendingRerun)
             {
                 _runCts?.Cancel();
                 _runCts?.Dispose();

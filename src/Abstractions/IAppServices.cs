@@ -45,6 +45,9 @@ public static class AuditActions
     public const string Redo = "edit.redo";
     public const string Run = "run.start";
     public const string Stop = "run.stop";
+    public const string RunStep = "run.step";
+    public const string RunRerun = "run.rerun";
+    public const string SetBreakpoint = "breakpoint.set";
 
     /// <summary>Device catalog (device/tag definitions) persisted (§7.1, stage-21). · 设备目录被持久化(§7.1,阶段21)</summary>
     public const string DeviceSave = "device.save";

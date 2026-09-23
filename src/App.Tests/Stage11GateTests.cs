@@ -225,5 +225,7 @@ public sealed class Stage11GateTests : IDisposable
         public void ReportError(string message)
         {
         }
+
+        public void ShowImageWindow(string nodeId, string nodeLabel) { }
     }
 }

@@ -52,7 +52,13 @@ public class TriggerEngineTests
         var sources = new List<TriggerSource>();
         var engine = new TriggerEngine(Config(TriggerSource.Timer), sources.Add);
         engine.Start();
-        await Task.Delay(180);
+
+        // Poll instead of a fixed sleep so a momentarily loaded thread pool (parallel suite)
+        // can't starve the tick-based assertion. · 改用轮询而非固定睡眠,避免并行套件下线程池瞬时
+        // 抖动饿死基于定时的断言
+        var deadline = Environment.TickCount64 + 2000;
+        while (engine.TimerPulses < 3 && Environment.TickCount64 < deadline)
+            await Task.Delay(25);
         await engine.StopAsync();
 
         Assert.True(engine.TimerPulses >= 3, $"expected ≥3 timer pulses, got {engine.TimerPulses}");

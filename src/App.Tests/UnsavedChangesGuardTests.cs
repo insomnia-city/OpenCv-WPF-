@@ -120,6 +120,7 @@ public sealed class UnsavedChangesGuardTests : IDisposable
         public string? SaveGraphFile(string defaultName, string filter) => null;
         public string? SaveCsvFile(string defaultName) => null;
         public void ReportError(string message) { }
+        public void ShowImageWindow(string nodeId, string nodeLabel) { }
 
         public bool Confirm(string message)
         {

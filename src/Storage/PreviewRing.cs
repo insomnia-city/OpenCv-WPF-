@@ -26,6 +26,9 @@ public sealed class PreviewRing
     /// <summary>When false, <see cref="Publish"/> is a no-op (preview disabled for throughput). · 为 false 时 Publish 空操作</summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Fired when a frame is published (stage-24: feeds the independent image window). · 发布帧时触发(阶段24:驱动独立图像窗)</summary>
+    public event Action<string, PreviewFrame>? Published;
+
     /// <summary>Nodes that currently hold at least one frame. · 当前至少持有一帧的节点</summary>
     public IReadOnlyList<string> Nodes => _rings.Keys.ToList();
 
@@ -35,6 +38,7 @@ public sealed class PreviewRing
         ArgumentNullException.ThrowIfNull(frame);
         if (!Enabled) return;
         _rings.GetOrAdd(frame.Node, _ => new NodeRing(Capacity)).Add(frame);
+        Published?.Invoke(frame.Node, frame);
     }
 
     /// <summary>Most recent frame for a node, or null. · 节点最近一帧，无则 null</summary>

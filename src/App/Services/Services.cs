@@ -36,6 +36,12 @@ public interface IDialogService
     /// · 打开触发设置对话框编辑图形配置;确定返回 true 且已改写配置。默认实现(测试桩)返回 false 且不改写。
     /// </summary>
     bool EditTrigger(TriggerConfig config) => false;
+
+    /// <summary>
+    /// Opens an independent image window showing the selected node's preview frames.
+    /// · 打开独立图像窗显示选中节点的预览帧。
+    /// </summary>
+    void ShowImageWindow(string nodeId, string nodeLabel);
 }
 
 /// <summary>
@@ -75,6 +81,14 @@ public sealed class WindowsDialogService : IDialogService
         var vm = new TriggerSettingsViewModel(config, AppServices.Localization);
         var dlg = new TriggerSettingsDialog(vm);
         return dlg.ShowDialog() == true;
+    }
+
+    public void ShowImageWindow(string nodeId, string nodeLabel)
+    {
+        // Defer to the shell (WPF thread); tests use a NoopDialogService stub.
+        // · 延迟到壳层(WPF 线程);测试使用 NoopDialogService 桩。
+        var vm = AppServices.Localization["imagewindow.title"];
+        System.Windows.MessageBox.Show($"{nodeLabel}: {nodeId}\n(Phase-24 image window)", "Halcon Workflow");
     }
 }
 

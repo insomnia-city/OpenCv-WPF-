@@ -136,11 +136,11 @@ public class DeviceCatalogTests
     [Fact]
     public void Catalog_CreateConnection_UnknownProtocolThrows()
     {
-        var catalog = new DeviceCatalog(new DeviceCatalogFile { Devices = { new DeviceProfile { DeviceId = "x", Protocol = "s7" } } });
+        var catalog = new DeviceCatalog(new DeviceCatalogFile { Devices = { new DeviceProfile { DeviceId = "x", Protocol = "opc-ua" } } });
         var ex = Assert.Throws<NotSupportedException>(() =>
             catalog.CreateConnection(
-                new DeviceProfile { DeviceId = "x", Protocol = "s7" }, new TagTable()));
-        Assert.Contains("s7", ex.Message);
+                new DeviceProfile { DeviceId = "x", Protocol = "opc-ua" }, new TagTable()));
+        Assert.Contains("opc-ua", ex.Message);
     }
 
     [Fact]

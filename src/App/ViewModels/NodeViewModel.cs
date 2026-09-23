@@ -92,6 +92,22 @@ public sealed partial class NodeViewModel : ObservableObject
         set => SetProperty(ref _isSelected, value);
     }
 
+    /// <summary>Breakpoint flag toggled by the shell (stage-23). · 断点标记(阶段23 由壳层切换)</summary>
+    public bool IsBreakpoint
+    {
+        get => _isBreakpoint;
+        set => SetProperty(ref _isBreakpoint, value);
+    }
+    private bool _isBreakpoint;
+
+    /// <summary>Elapsed time badge for the last completed cycle (stage-23). · 上一轮耗时徽标(阶段23)</summary>
+    public string? LastElapsedMsText
+    {
+        get => _lastElapsedMsText;
+        set => SetProperty(ref _lastElapsedMsText, value);
+    }
+    private string? _lastElapsedMsText;
+
     /// <summary>Deletes this node from the editor (wired by the shell). · 从编辑器删除本节点(壳层接线)</summary>
     public ICommand DeleteCommand
     {

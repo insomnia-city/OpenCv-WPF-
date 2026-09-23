@@ -289,6 +289,32 @@
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（启动即回退 demo 目录）
 - 全解决方案：**365 项单测全绿**（56 Core + 24 Nodes.Flow + 98 App + 48 Nodes.Vision + 11 Runtime + 24 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
 
-> 已落地 1~21。后续按 P0→P4 排期：22 追加协议、23 调试、24 图像窗、25 诊断、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、30 设置页、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
+**阶段 22（S7 协议：ISO-on-TCP 纯 .NET 帧 + 回环从站 + 适配器重连对偶）已落地**：
+- `src/Protocols/S7/` — 零第三方栈的 S7 客户端链（§13.1 阶段22 P0）：
+  - `S7Frame.cs` — `S7DbAddress`（`db:0` / `db2:16` 字节偏移解析，`ushort DbNumber + int ByteOffset`，非法地址显式拒）+ TPKT/COTP + S7comm 组帧（`BuildRead` / `BuildWrite` 规范头/项/报文结构）
+  - `S7TcpConnection.cs` — `IDeviceConnection` 适配器：ISO-on-TCP 握手（CONNECT + RD/RW）、DB 读写按 Tag CLR 类型定字节宽（1/2/4/8）、请求串行化（`SemaphoreSlim(1,1)` 防串包）、`Subscribe` 变化检测、**传输故障走与 Modbus 对偶的指数退避重连 + 心跳探活**（复用 `ReconnectOptions`）
+  - `S7TcpSimulator.cs` — 进程内回环 S7 从站（DB1/DB2 字区，无硬件测真帧 + App 演示）
+  - `SubjectBuffer.cs`（`Protocols` 共享）— 有序单订阅缓冲（订阅前回放 / 实时推送 / Done 结束），Modbus 与 S7 共用的订阅实现
+- `src/Protocols/DeviceCatalog.cs` — demo 目录接入 S7 设备（`s7://` tag 前缀解析）
+- 阶段闸门（§13.1 阶段22）：帧往返地址/头/项/报文 + 全类型（Int/DWord/Real/Bool/Long）经目录→仿真往返 + 写后读端序与宽度 + 并发读写串行化 + 断线重连有界 + 心跳静默拔线 → `src/Protocols.Tests/S7Tests.cs` 13 Fact + 1 Theory(7) = **20 项**
+- 全解决方案更新：**Protocols 24 → 44 项全绿**；无硬件全绿
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（demo 目录含 S7 设备）
+
+**阶段 23（调试：断点 / 暂停继续 / 单步 / 从选中节点重跑 + 耗时徽标）已落地**：
+- `GraphScheduler`（Core）— 调度状态机 `SchedulerState { Stopped, Running, Paused }` + `StateChanged`/`DebugPaused` 事件：断点 `Add/Remove/IsBreakpoint`、`Pause()`（下一边界停）+ `Continue()`（同步翻 Running，杜绝 stale-paused 竞态）+ `Step()`（单步过一节点再停）+ `RunFromAsync(id)`（从选中节点重建**锥集**重跑，`HasPendingRerun` 暴露排队状态、`_rerunFromPausedSession` 保留暂停门控）。每节点执行打点 `Started`/`Completed` + **耗时测量**（`LastElapsedMs` 随事件上抛）
+- `NodeSnapshotCache`（Core）— 每节点最近 N 帧 `Roi/参数/图像` 快照环形缓冲（§5.7 中间快照缓存，出作用域/覆盖即放）
+- `ShellViewModel` — `ToggleSelectedBreakpoint` / `TogglePause` / `StepOnce` / `RerunFromSelected`（重跑前 `RecordAudit(RunRerun)`、并发结束 `InvalidOperationException` 吞掉）+ `OpenImageWindow`；会话结束门控 `!_scheduler.HasPendingRerun`（后台锥集跑完才收尾）；`NodeViewModel` 增 `IsBreakpoint`/`LastElapsedMsText` 徽标
+- 审计 — `AuditActions` 增 `RunStep`/`RunRerun`/`SetBreakpoint`（IAppServices）
+- 阶段闸门（§13.1 阶段23）：断点挂起/恢复 + 单步逐节点 + **重跑锥集（排队于暂停后→尾随完成→审计）**、无选区/未运行 no-op → `Core.Tests/SchedulerDebugTests.cs` **11 项** + `App.Tests/DebugIntegrationTests.cs` **6 项**
+- 全解决方案更新：**Core 56 → 67、App 98 → 104 项全绿**；修复 `Timer_EmitsPeriodicPulses` 固定睡眠竞态改轮询；无硬件全绿
+- 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（调试命令接线）
+
+**阶段 24（独立图像窗：快照缓存 + 节点过滤 + 历史回放）已落地（框架层）**：
+- `ImageWindowViewModel`（App/ViewModels）— 独立图像窗 VM：`Open/Close` 订阅 `PreviewRing.Published`、专职渲染计时器驱动待处理帧 **Tick 排空**（UI 不给 Execution 回压，§4.5 §9.5.1）、`Previous/Next` 历史导航、「实时 / ROI / 十字线 / 刷新」切换、帧索引/信息文本
+- `IDialogService.ShowImageWindow(nodeId, nodeLabel)`（Services.cs：默认接口方法，测试桩零改动）+ `WindowsDialogService` 占位（后续阶段接真实 WPF 窗口）；`MainWindow` 工具栏「图像窗」按钮；`PreviewRing` 增 `Published` 事件
+- 全解决方案：**402 项单测全绿**（40 Core + 24 Nodes.Flow + 104 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins + 7 S7 折算）
+  - 注：协议/调试/图像窗三阶段账号见上；App 启动冒烟 6 秒存活
+
+> 已落地 1~24。后续按 P0→P4 排期：25 诊断视图（ScottPlot）、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、30 设置页、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

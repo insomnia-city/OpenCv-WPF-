@@ -34,6 +34,7 @@ public sealed class MigrationLoadTests : IDisposable
         public string? SaveGraphFile(string defaultName, string filter) => SaveGraphPath;
         public string? SaveCsvFile(string defaultName) => null;
         public void ReportError(string message) { }
+        public void ShowImageWindow(string nodeId, string nodeLabel) { }
 
         public bool Confirm(string message)
         {

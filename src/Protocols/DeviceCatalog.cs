@@ -1,6 +1,7 @@
 using HalconWorkflow.Abstractions;
 using HalconWorkflow.Protocols.Devices;
 using HalconWorkflow.Protocols.Modbus;
+using HalconWorkflow.Protocols.S7;
 
 namespace HalconWorkflow.Protocols;
 
@@ -71,9 +72,23 @@ public sealed class DeviceCatalog
                     Multiplier = 2.0,
                     MaxAttempts = 0
                 }),
+            "s7" => new S7TcpConnection(
+                profile.DeviceId,
+                profile.Host,
+                profile.Loopback ? (loopbackPort ?? profile.Port) : profile.Port,
+                tags,
+                TimeSpan.FromMilliseconds(profile.PollIntervalMs),
+                new ReconnectOptions
+                {
+                    HeartbeatMs = profile.HeartbeatMs,
+                    InitialDelayMs = 200,
+                    MaxDelayMs = 5000,
+                    Multiplier = 2.0,
+                    MaxAttempts = 0
+                }),
             _ => throw new NotSupportedException(
                 $"Unknown device protocol '{profile.Protocol}' for '{profile.DeviceId}'. " +
-                $"Supported: modbus-tcp. / 不支持的协议 '{profile.Protocol}' (设备 '{profile.DeviceId}')。支持:modbus-tcp。")
+                $"Supported: modbus-tcp, s7. / 不支持的协议 '{profile.Protocol}' (设备 '{profile.DeviceId}')。支持:modbus-tcp、s7。")
         };
     }
 

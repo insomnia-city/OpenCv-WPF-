@@ -56,14 +56,35 @@ public sealed class S7TcpSimulator : IAsyncDisposable
         lock (_gate) return (uint)byteOffset < _db.Length ? _db[byteOffset] : (byte)0;
     }
 
+    /// <summary>
+    /// Force-closes every connected client — simulates a network drop for reconnect tests.
+    /// Each dropped client triggers the per-session cleanup path; new connections still work.
+    /// 强制断开所有已连接客户端(模拟网络中断，供重连测试)。连接清理路径复用；新连接不受影响。
+    /// </summary>
+    public void DropAll()
+    {
+        TcpClient[] victims;
+        lock (_gate) victims = [.. _clients];
+        foreach (var c in victims)
+        {
+            try { c.Dispose(); }
+            catch { /* best-effort */ }
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
         _disposed = true;
         _cts.Cancel();
         _listener.Stop();
-        foreach (var c in _clients) c.Dispose();
-        _clients.Clear();
+        TcpClient[] victims;
+        lock (_gate) { victims = [.. _clients]; _clients.Clear(); }
+        foreach (var c in victims)
+        {
+            try { c.Dispose(); }
+            catch { /* best-effort */ }
+        }
         _cts.Dispose();
         await Task.CompletedTask.ConfigureAwait(false);
     }
@@ -140,49 +161,64 @@ public sealed class S7TcpSimulator : IAsyncDisposable
 
     private async Task HandlePduAsync(Stream stream, byte[] pdu)
     {
-        if (pdu.Length < 10 || pdu[0] != 0x01) return;
-        ushort pduRef = (ushort)((pdu[5] << 8) | pdu[6]);
-        ushort paramLen = (ushort)((pdu[7] << 8) | pdu[8]);
+        // S7 PDU header: pdu[0]=0x32 protocol, pdu[1]=ROSCTR, pdu[4..5]=ref, pdu[6..7]=param len.
+        // A job REQUEST carries fn at pdu[10] and its 12-byte item at pdu[12..23] inside the params.
+        // · S7 PDU 头: pdu[0]=0x32 协议、pdu[1]=ROSCTR、pdu[4..5]=引用号、pdu[6..7]=参数长。
+        //   Job 请求在 pdu[10] 为功能码,12 字节 item 位于参数区内的 pdu[12..23]。
+        if (pdu.Length < 24 || pdu[0] != S7Frame.ProtocolId) return;
+        ushort pduRef = (ushort)((pdu[4] << 8) | pdu[5]);
+        ushort paramLen = (ushort)((pdu[6] << 8) | pdu[7]);
         if (paramLen < 2 || pdu.Length < 10 + paramLen) return;
         byte fn = pdu[10];
-        if (fn == 0x04)
-            await ReplyReadAsync(stream, pduRef, pdu, paramLen).ConfigureAwait(false);
-        else if (fn == 0x05)
-            await ReplyWriteAsync(stream, pduRef, pdu, paramLen).ConfigureAwait(false);
+        if (fn == S7Frame.FnRead)
+            await ReplyReadAsync(stream, pduRef, pdu).ConfigureAwait(false);
+        else if (fn == S7Frame.FnWrite)
+            await ReplyWriteAsync(stream, pduRef, pdu).ConfigureAwait(false);
     }
 
-    private async Task ReplyReadAsync(Stream stream, ushort pduRef, byte[] pdu, int paramLen)
+    private async Task ReplyReadAsync(Stream stream, ushort pduRef, byte[] pdu)
     {
-        if (pdu.Length < 10 + paramLen + 14) return;
-        int i = 10 + paramLen;
-        int db = (pdu[i + 8] << 8) | pdu[i + 9];
-        int off = (pdu[i + 11] << 8) | pdu[i + 12];
-        int len = (pdu[i + 4] << 8) | pdu[i + 5];
+        const int item = 12; // header(10) + fn(1) + count(1) · 请求 item 起点
+        if (pdu.Length < item + 12) return;
+        int db = (pdu[item + 6] << 8) | pdu[item + 7];
+        int off = ((pdu[item + 9] << 16) | (pdu[item + 10] << 8) | pdu[item + 11]) / 8;
+        int len = (pdu[item + 4] << 8) | pdu[item + 5];
         if (db != 1 || len < 1 || len > 512) return;
+
+        if (off < 0 || off + len > _db.Length)
+        {
+            // Address out of range (0x05 item error) — mirrors a real S7/PA link. · 地址越界(0x05 项错误),模拟真实链路应答。
+            await WriteDataAckAsync(stream, pduRef, [0x05]).ConfigureAwait(false);
+            return;
+        }
 
         var value = new byte[len];
-        lock (_gate)
-        {
-            if (off >= 0 && off + len <= _db.Length) Array.Copy(_db, off, value, 0, len);
-        }
-        await WriteDataAckAsync(stream, pduRef, value).ConfigureAwait(false);
+        lock (_gate) Array.Copy(_db, off, value, 0, len);
+        int bits = len * 8;
+        await WriteDataAckAsync(stream, pduRef, [0xFF, S7Frame.DataTransportByte, (byte)(bits >> 8), (byte)bits, .. value]).ConfigureAwait(false);
     }
 
-    private async Task ReplyWriteAsync(Stream stream, ushort pduRef, byte[] pdu, int paramLen)
+    private async Task ReplyWriteAsync(Stream stream, ushort pduRef, byte[] pdu)
     {
-        if (pdu.Length < 10 + paramLen + 14) return;
-        int i = 10 + paramLen;
-        int db = (pdu[i + 8] << 8) | pdu[i + 9];
-        int off = (pdu[i + 11] << 8) | pdu[i + 12];
-        int len = (pdu[i + 4] << 8) | pdu[i + 5];
+        const int item = 12; // header(10) + fn(1) + count(1) · 请求 item 起点
+        if (pdu.Length < item + 12) return;
+        int db = (pdu[item + 6] << 8) | pdu[item + 7];
+        int off = ((pdu[item + 9] << 16) | (pdu[item + 10] << 8) | pdu[item + 11]) / 8;
+        int len = (pdu[item + 4] << 8) | pdu[item + 5];
         if (db != 1 || len < 1 || len > 512) return;
 
-        lock (_gate)
+        // Data section of a write request starts at 10+paramLen: return code, transport,
+        // bit length, then the payload bytes. · 写请求数据段自 10+paramLen 起:返回码、传输尺寸、位长、负载字节。
+        int dataStart = 10 + ((pdu[6] << 8) | pdu[7]);
+        if (pdu.Length < dataStart + 4 + len) return;
+        if (off < 0 || off + len > _db.Length)
         {
-            if (off >= 0 && off + len <= _db.Length && pdu.Length >= i + 14 + len)
-                Array.Copy(pdu, i + 14, _db, off, len);
+            // Address out of range (0x05 item error). · 地址越界(0x05 项错误)。
+            await WriteAckAsync(stream, pduRef, [0x05]).ConfigureAwait(false);
+            return;
         }
-        await WriteAckAsync(stream, pduRef).ConfigureAwait(false);
+        lock (_gate) Array.Copy(pdu, dataStart + 4, _db, off, len);
+        await WriteAckAsync(stream, pduRef, [0xFF]).ConfigureAwait(false);
     }
 
     private async Task WriteConnectConfirmAsync(Stream stream)
@@ -199,41 +235,44 @@ public sealed class S7TcpSimulator : IAsyncDisposable
         await stream.FlushAsync(_cts.Token).ConfigureAwait(false);
     }
 
-        private async Task WriteAckAsync(Stream stream, ushort pduRef)
+        private async Task WriteAckAsync(Stream stream, ushort pduRef, byte[] data)
     {
-        var frame = BuildPduFrame(pduRef, 0x03, [], []);
+        var frame = BuildPduFrame(pduRef, S7Frame.FnWrite, data);
         await stream.WriteAsync(frame, _cts.Token).ConfigureAwait(false);
         await stream.FlushAsync(_cts.Token).ConfigureAwait(false);
     }
 
     private async Task WriteDataAckAsync(Stream stream, ushort pduRef, byte[] value)
     {
-        byte[] data;
-        if (value.Length == 0)
-            data = [0xFF, 0x04];
-        else
-            data = [0xFF, 0x04, (byte)value.Length, .. value];
-
-        var frame = BuildPduFrame(pduRef, 0x03, [0x00, 0x04], data);
+        var frame = BuildPduFrame(pduRef, S7Frame.FnRead, value);
         await stream.WriteAsync(frame, _cts.Token).ConfigureAwait(false);
         await stream.FlushAsync(_cts.Token).ConfigureAwait(false);
     }
 
-    private static byte[] BuildPduFrame(ushort pduRef, byte ros, byte[] param, byte[] data)
+    /// <summary>
+    /// Builds one S7 ack-data telegram (TPKT + COTP DT + PDU) in canonical layout:
+    /// 12-byte response header (protocol 0x32, ROSCTR 0x03, ref, param len, data len,
+    /// error class/code), then the 2-byte param (fn + item count) and the data item.
+    /// / 组装一帧标准 S7 应答数据报文(TPKT+COTP DT+PDU):12 字节响应头(协议 0x32、
+    ///   ROSCTR 0x03、引用号、参数长、数据长、错误类/码),随后 2 字节参数(功能码+条目数)与数据项。
+    /// </summary>
+    private static byte[] BuildPduFrame(ushort pduRef, byte fn, byte[] data)
     {
-        int pduLen = 10 + param.Length + data.Length;
+        int pduLen = 12 + 2 + data.Length;
         int total = 7 + pduLen;
         var frame = new byte[total];
         frame[0] = 0x03; frame[1] = 0x00;
         frame[2] = (byte)(total >> 8); frame[3] = (byte)total;   // TPKT
         frame[4] = 0x02; frame[5] = 0xF0; frame[6] = 0x80;       // COTP DT
-        frame[7] = ros;
-        frame[8] = 0x00; frame[9] = 0x00; frame[10] = 0x00;
+        frame[7] = S7Frame.ProtocolId;                           // 0x32
+        frame[8] = 0x03;                                         // ROSCTR ack-data
+        frame[9] = 0x00; frame[10] = 0x00;                       // reserved
         frame[11] = (byte)(pduRef >> 8); frame[12] = (byte)pduRef;
-        frame[13] = (byte)(param.Length >> 8); frame[14] = (byte)param.Length;
+        frame[13] = (byte)(2 >> 8); frame[14] = (byte)2;         // param len = fn + count
         frame[15] = (byte)(data.Length >> 8); frame[16] = (byte)data.Length;
-        Array.Copy(param, 0, frame, 17, param.Length);
-        Array.Copy(data, 0, frame, 17 + param.Length, data.Length);
+        frame[17] = 0x00; frame[18] = 0x00;                      // error class + error code
+        frame[19] = fn; frame[20] = 0x01;                        // fn + item count
+        Array.Copy(data, 0, frame, 21, data.Length);
         return frame;
     }
 }

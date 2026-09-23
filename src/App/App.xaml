@@ -11,6 +11,7 @@
         <ctrl:StateToBrushConverter x:Key="StateToBrush" />
         <ctrl:PortKindToBrushConverter x:Key="PortKindToBrush" />
         <ctrl:ConnectStateToBrushConverter x:Key="ConnectStateToBrush" />
+        <ctrl:BoolToVisibilityConverter x:Key="BoolToVis" />
 
         <SolidColorBrush x:Key="CardBg" Color="#FF263238" />
         <SolidColorBrush x:Key="CardBorder" Color="#FF455A64" />
@@ -98,15 +99,24 @@
                             <TextBlock Grid.Column="1" Text="{Binding ContractDisplay}" Foreground="#CCFFFFFF" FontSize="10" VerticalAlignment="Center" />
                         </Grid>
                     </Border>
-                    <Grid Margin="0,3,0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <ItemsControl Grid.Column="0" ItemsSource="{Binding Inputs}" ItemTemplate="{StaticResource InputPortTemplate}" Margin="8,0,10,0" VerticalAlignment="Top" />
-                        <ItemsControl Grid.Column="2" ItemsSource="{Binding Outputs}" ItemTemplate="{StaticResource OutputPortTemplate}" Margin="10,0,8,0" VerticalAlignment="Top" />
-                    </Grid>
+                        <Grid Margin="0,3,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ItemsControl Grid.Column="0" ItemsSource="{Binding Inputs}" ItemTemplate="{StaticResource InputPortTemplate}" Margin="8,0,10,0" VerticalAlignment="Top" />
+                            <ItemsControl Grid.Column="2" ItemsSource="{Binding Outputs}" ItemTemplate="{StaticResource OutputPortTemplate}" Margin="10,0,8,0" VerticalAlignment="Top" />
+                        </Grid>
+                        <!-- Breakpoint indicator + elapsed badge · 断点指示+耗时徽标 -->
+                        <Grid Margin="0,0,0,3" HorizontalAlignment="Center">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Width="6" Height="6" Fill="#FFD32F2F" Visibility="{Binding IsBreakpoint, Converter={StaticResource BoolToVis}}" />
+                            <TextBlock Grid.Column="1" Text="{Binding LastElapsedMsText}" Foreground="#FF90A4AE" FontSize="9" Margin="4,0,0,0" VerticalAlignment="Center" />
+                        </Grid>
                 </StackPanel>
             </Border>
         </DataTemplate>
