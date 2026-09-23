@@ -205,6 +205,6 @@ public sealed class DebugIntegrationTests : IDisposable
         public string? SaveCsvFile(string defaultName) => null;
         public bool Confirm(string message) => true;
         public void ReportError(string message) { }
-        public void ShowImageWindow(string nodeId, string nodeLabel) { }
+        public void ShowImageWindow(ImageWindowViewModel vm) { }
     }
 }

@@ -38,10 +38,10 @@ public interface IDialogService
     bool EditTrigger(TriggerConfig config) => false;
 
     /// <summary>
-    /// Opens an independent image window showing the selected node's preview frames.
-    /// · 打开独立图像窗显示选中节点的预览帧。
+    /// Opens an independent image window bound to the given view model (§4.5, stage-24).
+    /// · 打开绑定到给定视图模型的独立图像窗(§4.5,阶段24)
     /// </summary>
-    void ShowImageWindow(string nodeId, string nodeLabel);
+    void ShowImageWindow(ImageWindowViewModel vm);
 }
 
 /// <summary>
@@ -83,12 +83,10 @@ public sealed class WindowsDialogService : IDialogService
         return dlg.ShowDialog() == true;
     }
 
-    public void ShowImageWindow(string nodeId, string nodeLabel)
+    public void ShowImageWindow(ImageWindowViewModel vm)
     {
-        // Defer to the shell (WPF thread); tests use a NoopDialogService stub.
-        // · 延迟到壳层(WPF 线程);测试使用 NoopDialogService 桩。
-        var vm = AppServices.Localization["imagewindow.title"];
-        System.Windows.MessageBox.Show($"{nodeLabel}: {nodeId}\n(Phase-24 image window)", "Halcon Workflow");
+        var dlg = new Views.ImageWindow(vm);
+        dlg.Show();
     }
 }
 

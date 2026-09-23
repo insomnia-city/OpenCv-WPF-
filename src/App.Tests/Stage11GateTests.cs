@@ -226,6 +226,6 @@ public sealed class Stage11GateTests : IDisposable
         {
         }
 
-        public void ShowImageWindow(string nodeId, string nodeLabel) { }
+        public void ShowImageWindow(ImageWindowViewModel vm) { }
     }
 }

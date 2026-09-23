@@ -1076,8 +1076,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     {
         var sel = _selectedNode;
         if (sel is null) return;
-        _dialogs.ShowImageWindow(sel.Id, sel.Header);
         _imageWindowVm.Open(sel.Id, sel.Header);
+        _dialogs.ShowImageWindow(_imageWindowVm);
     }
 
     /// <summary>Toggles the selected node's breakpoint; audits the change. · 切换选中节点的断点;审计变更</summary>
