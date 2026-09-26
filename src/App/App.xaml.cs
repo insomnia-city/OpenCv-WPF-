@@ -17,8 +17,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Seed the ambient settings snapshot from appsettings.json (stage-30, §5.8); a missing or
+        // corrupt file falls back to identical defaults, so startup never fails on it.
+        // 依 appsettings.json 播种 ambient 设置快照(阶段30,§5.8);文件缺失/损坏回退同值默认值,启动不因此失败。
+        AppServices.Settings = AppSettingsFile.Load(AppServices.SettingsPath);
+
         var loc = AppServices.Localization;
-        loc.Culture = new System.Globalization.CultureInfo("zh-Hans");
+        loc.Culture = new System.Globalization.CultureInfo(AppServices.Settings.Culture);
 
         _shell = new ShellViewModel(loc, new WindowsDialogService());
         CrashGuard.Install(this, message => _shell?.Log.Add("error", message));

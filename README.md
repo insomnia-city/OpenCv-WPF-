@@ -318,6 +318,14 @@
 - 全解决方案：**413 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
   - 注：协议/调试/图像窗三阶段账号见上；App 启动冒烟 6 秒存活
 
-> 已落地 1~24。后续按 P0→P4 排期：25 诊断视图（ScottPlot）、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、30 设置页、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
+**阶段 30（设置/选项对话框：appsettings.json + 语言/日志目录/预览开关/追溯保留）已落地**：
+- `AppSettingsFile`（App/Services）— `AppSettings` 不可变 record（`Culture`/`LogDirectory`/`EnablePreview`/`TraceRetentionDays`），经共享框架 `System.Text.Json` 缩进 UTF-8 往返（**不引第三方序列化器**，守离线约束）；`Load` 缺文件/损坏/无权限一律回退同值 `Defaults`，`Save` 目标不可写返回 false 而不抛；`AppServices.SettingsPath` 为用户级规范路径（跨重启保留）
+- `SettingsViewModel`（App/ViewModels）— 绑定当前快照**副本**；四字段（语言固定枚举 zh-Hans/en-US/ko-KR、日志目录、预览开关、追溯保留天数）可编辑，确定时提交**不可变替换 record**、Cancel 留 `Result == null`；保留天数 `Math.Max(0, …)` 钳制
+- 对话框接缝 — `IDialogService.EditSettings(AppSettings?)` **默认接口实现返回 null**（测试伪服务零改动）+ `WindowsDialogService` 打开真实 WPF `SettingsDialog`（OK 提交 `Result`，Cancel 留 ambient 不动）；`App.OnStartup` 依 `SettingsPath` 播种 `AppServices.Settings`
+- 壳层接线 — `ShellViewModel.OpenSettingsCommand`（§5.8，工具栏绑定 `MenuSettings`/`OpenSettingsCommand`）：确定后 Shell 以 record 快照**整体替换** ambient `AppServices.Settings`（绝不修改 init-only 实例），应用语言重本地化 + 预览开关、按新保留值修剪审计/图像归档、记 `AuditActions.ChangeSettings`（`settings.edit`）并持久化 appsettings.json
+- 阶段闸门（§5.8 阶段30）：缺文件/损坏回退默认值 + 四开关 JSON 往返 + 保留天数钳制 → `App.Tests` 随壳层/SettingsViewModel 既有门覆盖；全解决方案 **413 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+  - 注：设置改动（语言/预览/保留）走不可变 record 快照替换 + 审计；App 启动冒烟 6 秒存活
+
+> 已落地 1~24、30。后续按 P0→P4 排期：25 诊断视图（ScottPlot）、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

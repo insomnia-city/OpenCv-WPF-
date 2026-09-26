@@ -176,6 +176,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     // Localized strings refreshed on culture switch via the empty-property-Name broadcast below. · 本地化字符串(语言切换时全量刷新)
     public string AppTitle => _loc["app.title"];
     public string MenuNew => _loc["menu.new"];
+    public string MenuSettings => _loc["settings.title"];
     public string MenuLoad => _loc["menu.load"];
     public string MenuSave => _loc["menu.save"];
     public string MenuRun => _loc["menu.run"];
@@ -197,6 +198,41 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     public string MenuStep => _loc["menu.step"];
     public string MenuRerun => _loc["menu.rerun"];
     public string MenuBreakpoint => _loc["menu.breakpoint"];
+
+    /// <summary>Toolbar settings command label (§5.8, stage-30). · 工具栏设置命令标签(§5.8,阶段30)</summary>
+
+    /// <summary>
+    /// Opens the application-settings dialog (§5.8, stage-30): on OK the Shell swaps its ambient
+    /// <see cref="AppServices.Settings"/> record snapshot (never mutating the init-only instance),
+    /// applies the culture relocalization + preview toggle, prunes audit/image archives by the new
+    /// retention, records a <see cref="AuditActions.ChangeSettings"/> event and persists appsettings.json.
+    /// · 打开应用设置对话框(§5.8,阶段30):确定后 Shell 以 record 快照整体替换 ambient
+    ///   AppServices.Settings 实例(绝不修改 init-only 实例),应用语言重本地化与预览开关,按新保留值
+    ///   修剪审计/图像归档,记录 AuditActions.ChangeSettings 事件并持久化 appsettings.json。
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenSettingsAsync()
+    {
+        if (_running) return;
+        if (!EnsureAllowed(AuditActions.ChangeSettings)) return;
+        var edited = _dialogs.EditSettings(AppServices.Settings);
+        if (edited is null) { Log.Add("info", "Settings cancelled"); return; }
+
+        var olderThan = DateTimeOffset.Now.AddDays(-edited.TraceRetentionDays);
+        var ct2 = _runCts?.Token ?? CancellationToken.None;
+        await Task.WhenAll(
+            _images.PruneAsync(olderThan, ct2),
+            _audit.PruneAsync(olderThan, ct2));
+
+        AppServices.Settings = edited;
+        Culture = new CultureInfo(edited.Culture);
+        _preview.Enabled = edited.EnablePreview;
+        try { AppSettingsFile.Save(AppServices.SettingsPath, edited); }
+        catch (IOException ex) { Log.Add("warn", $"appsettings save failed: {ex.Message}"); }
+        await RecordAuditAsync(AuditActions.ChangeSettings, edited.Culture,
+            after: $"{edited.Culture};preview={edited.EnablePreview};retention={edited.TraceRetentionDays}");
+        Status = _loc["status.ready"];
+    }
 
     /// <summary>Pause label while running, resume label while paused at a breakpoint. · 运行中为「暂停」，断点停驻时为「继续」</summary>
     public string MenuPauseResume => IsPaused ? _loc["menu.resume"] : _loc["menu.pause"];
@@ -1224,6 +1260,8 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         QueueLimit = config.QueueLimit,
         IntervalMs = config.IntervalMs
     };
+
+
 
     private void OnNodeEvent(NodeExecutionEvent evt)
     {

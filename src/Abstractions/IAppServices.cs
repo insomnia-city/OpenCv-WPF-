@@ -58,6 +58,9 @@ public static class AuditActions
     /// <summary>Current role was changed (§9.3). · 当前角色被变更(§9.3)</summary>
     public const string SetRole = "role.set";
 
+    /// <summary>Application settings were edited and saved via the settings dialog (§5.8, stage-30). · 应用设置经由设置对话框被编辑并保存(§5.8,阶段30)</summary>
+    public const string ChangeSettings = "settings.edit";
+
     /// <summary>A permission check failed and the operation was refused (§9.3). · 权限校验失败且操作被拒(§9.3)</summary>
     public const string AccessDenied = "access.denied";
 }

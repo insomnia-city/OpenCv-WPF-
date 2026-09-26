@@ -38,6 +38,17 @@ public interface IDialogService
     bool EditTrigger(TriggerConfig config) => false;
 
     /// <summary>
+    /// Opens the settings/options dialog bound to a snapshot of the current app settings; returns
+    /// the edited <see cref="AppSettings"/> on OK (the VM's Save replaces the caller's init-only record
+    /// instance — the inverse of the mutating trigger dialog), null on Cancel. Default (test stubs)
+    /// returns null without editing, mirroring <see cref="EditTrigger"/>.
+    /// · 打开绑定到当前应用设置快照的设置/选项对话框;确定返回编辑后的 AppSettings(VM 的保存以
+    ///   init-only record 实例替换调用方实例——与改写式触发对话框相反),取消返回 null。默认(测试桩)
+    ///   返回 null 且不进行编辑,与 EditTrigger 对偶。
+    /// </summary>
+    AppSettings? EditSettings(AppSettings? current) => null;
+
+    /// <summary>
     /// Opens an independent image window bound to the given view model (§4.5, stage-24).
     /// · 打开绑定到给定视图模型的独立图像窗(§4.5,阶段24)
     /// </summary>
@@ -83,6 +94,13 @@ public sealed class WindowsDialogService : IDialogService
         return dlg.ShowDialog() == true;
     }
 
+    public AppSettings? EditSettings(AppSettings? current)
+    {
+        var vm = new SettingsViewModel(AppServices.Localization, current);
+        var dlg = new SettingsDialog(vm);
+        return dlg.ShowDialog() == true ? vm.Result : null;
+    }
+
     public void ShowImageWindow(ImageWindowViewModel vm)
     {
         var dlg = new Views.ImageWindow(vm);
@@ -98,4 +116,21 @@ public static class AppServices
 {
     /// <summary>UI localization service. · UI 本地化服务</summary>
     public static Services.LocalizationService Localization { get; set; } = new();
+
+    /// <summary>
+    /// Application settings snapshot shared by markup and startup (stage-30, §5.8 appsettings.json).
+    /// Seeded in App.OnStartup from <see cref="SettingsPath"/>; VMs replace it via the settings dialog.
+    /// · 由标记扩展与启动共享的应用设置快照(阶段30,§5.8 appsettings.json)。App.OnStartup 依
+    ///   SettingsPath 播种;VM 通过设置对话框以 record 快照替换。
+    /// </summary>
+    public static AppSettings Settings { get; set; } = AppSettingsFile.Defaults;
+
+    /// <summary>
+    /// Canonical appsettings.json path (user-local, survives restarts, §5.8). · 规范的
+    /// appsettings.json 路径(用户级,跨重启保留,§5.8)
+    /// </summary>
+    public static string SettingsPath => AppSettingsFile.PathFor(
+        System.IO.Path.Combine(
+            System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+            "HalconWorkflow", "config"));
 }
