@@ -10,6 +10,12 @@
 > 本项目**尚未发布正式版本号**（无 `Version` 属性、无 release tag），因此不提供
 > 历史版本的安全更新。版本化发布策略属交付协议 §7 事项 4。
 
+## 许可与分发范围
+
+本项目为**专有闭源软件**，© 2026 陈浪，保留所有权利，许可全文见 [`LICENSE`](LICENSE)。
+未经著作权人事先书面许可，**不得**复制、分发、公开托管或制作衍生作品。因此漏洞报告
+请勿附带可分发的代码片段或数据导出，必要时以脱敏描述替代。
+
 ## 报告漏洞
 
 请**不要**通过公开 issue 报告安全问题。请通过私下渠道联系交付方，并提供：
@@ -41,8 +47,11 @@ P0 级问题（可远程触发且导致数据损坏或代码执行）按 **4h** 
 
 - 运行时第三方依赖与许可见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)，
   许可正文见 [`third-party/`](third-party/)。
-- OpenCV 4.13 适用 **Apache-2.0**（4.5.0 起由 BSD 切换）。
+- OpenCV 4.13 适用 **Apache-2.0**（4.5.0 起由 BSD 切换）。所附 `third-party/opencv/`
+  下的 `LICENSE`/`COPYRIGHT`/许可变更说明已与 **OpenCV 4.14.0 真实源码树 SHA256 交叉
+  复核一致**，故对 4.13 与 4.14 均准确。
 - 随包的 `opencv_videoio_ffmpeg4130_64.dll` 封装 **LGPL-2.1-or-later（非 GPL）**。
   **已采用方案 B**：由 `Directory.Build.targets` 在 Build/Publish 后将该 DLL 排除，
   故不触发 LGPL 的源码/要约/可替换义务，也不引入 FFmpeg 库的供应链面。
   详见 [`third-party/ffmpeg/NOTICE.md`](third-party/ffmpeg/NOTICE.md)。
+- 本项目采用专有许可**不改变**上述第三方组件的许可条款，亦不影响对其的合规使用义务。

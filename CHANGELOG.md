@@ -15,17 +15,26 @@
 - [ ] CI/CD 流水线（Windows runner：build + test）
 - [ ] 安装包 / 部署脚本
 - [ ] 运维文档（安装手册、故障排查、参数备份恢复）
-- [ ] 版本治理基建（`LICENSE`、发布 tag 策略）
+- [ ] 发布 tag 策略（版本治理剩余项）
 - [ ] 人工可操作仿真演示件（不依赖硬件）
 
 已关闭：
 
+- [x] 选定本项目原创代码许可 → **专有闭源**，© 2026 陈浪，保留所有权利，授权以双方
+      另行签署的书面合同为准（`LICENSE` 已写入全文）。
 - [x] 核实 `opencv_videoio_ffmpeg4130_64.dll` 内 FFmpeg 的实际许可 → **LGPL-2.1-or-later，
       非 GPL-2.0**（OpenCV 官方 `3rdparty/ffmpeg/readme.txt`：Windows 预编译版本
       "without GPL components"），无 GPL 传染。
 - [x] FFmpeg 分发路径定案 → **采用方案 B（排除该 DLL）**，由 `Directory.Build.targets`
       在 Build/Publish 后删除；已实测发布产物中残留为 0，相机取像不受影响。
       故不再需要随包附 LGPL 全文与源码要约。
+- [x] 修复两个负载敏感的测试竞态（`SchedulerDebugTests` 先发信号后订阅；
+      `LiveDataFlowTests` 假设节点事件同步投递）。对照实验：修复前基线串行 4 轮全失败，
+      修复后 4 倍 CPU 负载下 10 轮 0 失败，串行/并行均 421/421。
+
+### 修复
+
+- 测试竞态修复仅改测试代码，未触碰任何生产代码。
 
 ---
 

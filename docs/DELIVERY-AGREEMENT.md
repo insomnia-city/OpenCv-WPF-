@@ -122,8 +122,11 @@ dotnet test  HalconWorkflow.sln --nologo
   相机实时取像不受影响（走 DirectShow/MSMF），详见 `third-party/ffmpeg/NOTICE.md`。
 - `OpenCvSharp4.runtime.win` NuGet 包内**无任何许可文件**（实测），
   Apache-2.0 §4(a)/(c) 须由 `third-party/opencvsharp/` 在发布包中显式满足（§7 事项 2）。
-- **待补（§7 事项 4）**：`LICENSE` 内容待版权所有方选定；`THIRD-PARTY-NOTICES.md` 与
-  `third-party/` 许可正文目录已建，11 项依赖许可已按本机 NuGet `.nuspec` 实际元数据逐条核验。
+- **已补（§7 事项 4）**：`LICENSE` 已定为**专有闭源许可**，© 2026 陈浪，保留所有权利，
+  授权以双方另行签署的书面合同为准；`THIRD-PARTY-NOTICES.md` 与 `third-party/` 许可正文
+  目录已建，11 项依赖许可已按本机 NuGet `.nuspec` 实际元数据逐条核验，
+  OpenCV/OpenCvSharp 的 Apache-2.0 全文另经 OpenCV 4.14.0 真实源码树 SHA256 交叉复核一致。
+  **未完成**：发布 tag 策略。
 
 ---
 
@@ -160,7 +163,7 @@ dotnet test  HalconWorkflow.sln --nologo
 | 1 | CI/CD 流水线 | 待办 | 建议 GitHub Actions：build + test，Windows runner（视觉原生为 win-x64） |
 | 2 | 安装包 / 部署脚本 | 待办 | 需产出可分发目录或安装包 + 部署说明；须一并附 OpenCvSharp/OpenCV 的许可与 NOTICE（见 §4） |
 | 3 | 运维文档 | 待办 | 安装手册、故障排查、参数备份/恢复 |
-| 4 | 版本治理基建 | **部分完成** | 已建 `global.json`（锁 SDK 9.0.317 + `rollForward: latestFeature`）、`CHANGELOG.md`、`SECURITY.md`、`THIRD-PARTY-NOTICES.md`（11 项依赖许可已按 NuGet `.nuspec` 实际元数据逐条核验）、`third-party/` 许可正文目录（OpenCV/OpenCvSharp 的 Apache-2.0 全文、OpenCV `COPYRIGHT`、许可变更说明、FFmpeg LGPL 声明）。**未完成**：`LICENSE` 内容待版权所有方选定（现为明确占位，标注「保留所有权利」，不得对外分发）、发布 tag 策略 |
+| 4 | 版本治理基建 | **基本完成** | 已建 `global.json`（锁 SDK 9.0.317 + `rollForward: latestFeature`）、`CHANGELOG.md`、`SECURITY.md`、`THIRD-PARTY-NOTICES.md`（11 项依赖许可已按 NuGet `.nuspec` 实际元数据逐条核验）、`third-party/` 许可正文目录（OpenCV/OpenCvSharp 的 Apache-2.0 全文、OpenCV `COPYRIGHT`、许可变更说明、FFmpeg LGPL 声明）。**`LICENSE` 已定为专有闭源许可**：© 2026 陈浪，保留所有权利，授权以双方另行签署的书面合同为准。**未完成**：发布 tag 策略 |
 | 5 | 人工可操作仿真演示件 | 待办 | 不依赖硬件；跑通 grab→threshold→measure→存图 |
 | 6 | ~~FFmpeg 许可核实~~ | **已关闭** | OpenCV 官方 `3rdparty/ffmpeg/readme.txt` 明确 Windows 预编译 ffmpeg「without GPL components」且为 **LGPL-2.1-or-later，非 GPL-2.0** → 无 GPL 传染 |
 | 7 | 第三方许可正文入包 | **已完成** | OpenCV/OpenCvSharp 的 Apache-2.0 全文、`COPYRIGHT`、许可变更说明、FFmpeg LGPL 声明已落 `third-party/`（SHA256 校验逐字一致）。**已采用方案 B**：由 `Directory.Build.targets` 在 Build/Publish 后排除 `opencv_videoio_ffmpeg4130_64.dll`，从而不触发 LGPL 源码/要约/可替换义务。已实测发布产物中该 DLL 残留为 0 |
