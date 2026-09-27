@@ -1,0 +1,90 @@
+name: CI
+
+# This workflow deliberately contains no build or test logic of its own. Every check lives
+# in tools/checks/ci_gate.ps1 so that a green run means the same thing on a runner as it
+# does on a developer machine. Extend the script, not this file.
+#
+# Note: this repository currently has no git remote, so this workflow is dormant until a
+# remote is attached. It is committed now so the gate is defined in one place from day one.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+# Superseded runs on the same ref are cancelled, except on master where every push is kept.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' && github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: build + test (Windows x64)
+    # Windows is required, not a preference: the App is WPF (net9.0-windows) and the
+    # Nodes.Vision tests load the real x64 OpenCV native runtime.
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET (version from global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      # Harmless when the targeting pack is already on the image, and it keeps the App's
+      # UseWPF requirement from being the first thing that fails on a fresh runner.
+      - name: Ensure Windows Desktop workload
+        run: dotnet workload install windowsdesktop --skip-sign-check
+        continue-on-error: true
+
+      - name: Show environment
+        run: |
+          Write-Host "runner : $env:RUNNER_OS $env:RUNNER_ARCH"
+          Write-Host "branch : $env:GITHUB_REF_NAME  commit: $env:GITHUB_SHA"
+          dotnet --info
+
+      - name: Run delivery gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          & tools/checks/ci_gate.ps1
+          $code = $LASTEXITCODE
+
+          # Mirror the gate output into the run summary so failures are readable without
+          # opening the raw log.
+          $gateLog = Join-Path $env:TEMP 'halcon-ci-gate\gate-output.txt'
+          if (Test-Path $gateLog) {
+            "## Delivery gate" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            Get-Content $gateLog | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+          if ($code -ne 0) { Write-Host "gate failed with exit $code" -ForegroundColor Red; exit $code }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-trx
+          path: ${{ env.TEMP }}\halcon-ci-gate\*.trx
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload publish output listing
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-output
+          path: ${{ env.TEMP }}\halcon-ci-gate\publish
+          if-no-files-found: ignore
+          retention-days: 7

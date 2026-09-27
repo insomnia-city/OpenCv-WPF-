@@ -8,11 +8,40 @@
 
 ---
 
+## CI 基建（2026-09-27）
+
+### 新增
+
+- `tools/checks/ci_gate.ps1` —— 交付门禁，**唯一判定源**。8 项检查：
+  SDK 满足 `global.json` → restore → Release 构建 0 错误 → 全量测试 → TRX 判定
+  （0 失败、无异常终态、测试数不低于 421、视觉测试未跳过）→ App publish →
+  **FFmpeg 方案 B 排除在发布产物中生效，且 `OpenCvSharpExtern.dll` 未被误删**。
+  输出同时写入 `%TEMP%\halcon-ci-gate\gate-output.txt` 供 CI 附档与摘要。
+- `.github/workflows/ci.yml` —— Windows x64 runner（App 为 WPF `net9.0-windows`，
+  视觉原生为 win-x64，两者都决定了不能用 Linux runner）。**workflow 不含任何判定逻辑**，
+  只调用门禁脚本，避免本地与 CI 判定漂移。上传 TRX（always）与发布产物（失败时）。
+  当前仓库**尚无 git remote**，故该 workflow 处于待激活状态。
+
+### 修复（`stage21_trx_summarize.ps1` 的三处失效）
+
+1. `--logger trx;LogFileName=<固定名>`：同一 if 无关，各测试项目写入**同一路径互相覆盖**，
+   最终只留下最后完成的那个程序集（实测 13 个程序集只剩 1 个，421 项只读到 67 项）。
+   改为不指定文件名，VSTest 为每个项目各自命名，再聚合全部 TRX。
+2. 从 `UnitTestResult` 读取 `assemblyName` 属性：该属性**在 TRX 格式中不存在**，
+   取值恒为空，导致所有测试被归入同一个无名分组。改为经 `testId` 映射到
+   `TestDefinitions/UnitTest/TestMethod/@codeBase`，按真实测试程序集分组。
+3. 通过 `ProcessStartInfo.ArgumentList` 传参：该属性在 Windows PowerShell 5.1
+   （.NET Framework）中不存在，脚本在 5.1 下必然空引用失败，实际只有 pwsh 7 能跑。
+   改为直接调用 `dotnet`，并去掉对自动变量 `$args` 的遮蔽。
+
+修正后本机 5.1 实测 421/421、13 个程序集分组正确。
+
+---
+
 ## 未发布 — 交付前承诺事项
 
 交付协议 §7 承诺、尚未完成：
 
-- [ ] CI/CD 流水线（Windows runner：build + test）
 - [ ] 安装包 / 部署脚本
 - [ ] 运维文档（安装手册、故障排查、参数备份恢复）
 - [ ] 发布 tag 策略（版本治理剩余项）
@@ -20,6 +49,8 @@
 
 已关闭：
 
+- [x] CI/CD 流水线 → 门禁脚本 `tools/checks/ci_gate.ps1` 为唯一判定源（8 项检查），
+      `.github/workflows/ci.yml` 仅调用之。含 FFmpeg 方案 B 的发布产物守卫。
 - [x] 选定本项目原创代码许可 → **专有闭源**，© 2026 陈浪，保留所有权利，授权以双方
       另行签署的书面合同为准（`LICENSE` 已写入全文）。
 - [x] 核实 `opencv_videoio_ffmpeg4130_64.dll` 内 FFmpeg 的实际许可 → **LGPL-2.1-or-later，
@@ -35,6 +66,7 @@
 ### 修复
 
 - 测试竞态修复仅改测试代码，未触碰任何生产代码。
+- `tools/checks/stage21_trx_summarize.ps1` 三处失效（详见下节「CI 基建」）。
 
 ---
 

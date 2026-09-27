@@ -5,66 +5,80 @@ New-Item -ItemType Directory -Path $dir | Out-Null
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $runLog = Join-Path $dir "runner-out.txt"
-$errLog = Join-Path $dir "runner-err.txt"
 
-$psi = New-Object System.Diagnostics.ProcessStartInfo
-$psi.FileName = "dotnet"
-$psi.WorkingDirectory = $scriptDir
-$psi.UseShellExecute = $false
-$psi.RedirectStandardOutput = $true
-$psi.RedirectStandardError = $true
-$psi.CreateNoWindow = $true
-$psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-$psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-
-# Arguments built as a string array; index  ⁄ /  §  all ASCII here.
-$trxName = "suite-results.trx"
-$args = @(
+# Do NOT pass LogFileName. With a fixed name every test project writes to the same path, so
+# they overwrite each other and only the last project to finish is left. Letting VSTest pick
+# per-project names is what makes a solution-level run complete.
+$dotnetArgs = @(
   "test",
   "HalconWorkflow.sln",
   "--nologo",
   "--no-restore",
-  "--logger", ("trx;LogFileName=" + $trxName),
+  "--logger", "trx",
   "--results-directory", $dir
 )
-foreach ($a in $args) { $null = $psi.ArgumentList.Add($a) }
 
-$proc = [System.Diagnostics.Process]::Start($psi)
-$stdout = $proc.StandardOutput.ReadToEnd()
-$stderr = $proc.StandardError.ReadToEnd()
-$proc.WaitForExit()
-$code = $proc.ExitCode
+# Invoked directly rather than through ProcessStartInfo: ArgumentList does not exist on
+# Windows PowerShell 5.1 (.NET Framework), so the previous ProcessStartInfo form silently
+# only ever worked under pwsh 7. This also avoids shadowing the automatic $args variable.
+# stderr is folded into the captured text, so ErrorActionPreference is relaxed for the call.
+$savedPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+$stdout = (& dotnet @dotnetArgs 2>&1 | Out-String)
+$code = $LASTEXITCODE
+$ErrorActionPreference = $savedPreference
 [System.IO.File]::WriteAllText($runLog, $stdout, (New-Object System.Text.UTF8Encoding($false)))
-[System.IO.File]::WriteAllText($errLog, $stderr, (New-Object System.Text.UTF8Encoding($false)))
 
-$trx = Join-Path $dir $trxName
-if (-not (Test-Path $trx)) {
+
+$trxFiles = @(Get-ChildItem -LiteralPath $dir -Filter "*.trx" -Recurse -File)
+if ($trxFiles.Count -eq 0) {
     "TRX-MISSING exit=$code"
-    "== stderr tail (first 12 lines):"
-    (Get-Content $errLog -TotalCount 12) | ForEach-Object { "  " + $_ }
+    "== runner log tail (first 12 lines):"
+    (Get-Content $runLog -TotalCount 12) | ForEach-Object { "  " + $_ }
     exit 1
 }
 
-$xml = New-Object System.Xml.XmlDocument
-$xml.Load($trx)
-$ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
-$ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
-
-$rows = $xml.SelectNodes("//t:UnitTestResult", $ns)
 $map = [ordered]@{}
 $grandPass = 0
 $grandTotal = 0
-foreach ($r in $rows) {
-    $asm = $r.GetAttribute("assemblyName")
-    if (-not $map.Contains($asm)) { $map[$asm] = @{ pass = 0; total = 0 } }
-    $e = $map[$asm]
-    $e.total++
-    if ($r.GetAttribute("outcome") -eq "Passed") { $e.pass++ ; $grandPass++ }
-    $grandTotal++
+foreach ($trxFile in $trxFiles) {
+    $xml = New-Object System.Xml.XmlDocument
+    $xml.Load($trxFile.FullName)
+    $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+    $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+
+    # UnitTestResult carries no assembly attribute, so attribute each result by mapping
+    # testId through TestDefinitions/UnitTest/TestMethod/@codeBase, which holds the built
+    # test dll. Reading a non-existent "assemblyName" attribute silently yields "", which
+    # collapses every test into one unnamed bucket.
+    $idToAsm = @{}
+    foreach ($def in $xml.SelectNodes("//t:TestDefinitions/t:UnitTest", $ns)) {
+        $id = $def.GetAttribute("id")
+        if ([string]::IsNullOrEmpty($id)) { continue }
+        $asm = "<unknown>"
+        $method = $def.SelectSingleNode("t:TestMethod", $ns)
+        if ($null -ne $method) {
+            $codeBase = $method.GetAttribute("codeBase")
+            if (-not [string]::IsNullOrEmpty($codeBase)) {
+                $asm = [System.IO.Path]::GetFileNameWithoutExtension($codeBase)
+            }
+        }
+        $idToAsm[$id] = $asm
+    }
+
+    foreach ($r in $xml.SelectNodes("//t:UnitTestResult", $ns)) {
+        $testId = $r.GetAttribute("testId")
+        $asm = if ($idToAsm.ContainsKey($testId)) { $idToAsm[$testId] } else { "<unknown>" }
+        if (-not $map.Contains($asm)) { $map[$asm] = @{ pass = 0; total = 0 } }
+        $e = $map[$asm]
+        $e.total++
+        if ($r.GetAttribute("outcome") -eq "Passed") { $e.pass++ ; $grandPass++ }
+        $grandTotal++
+    }
 }
 
 $sb = New-Object System.Text.StringBuilder
-[void]$sb.AppendLine("== per-assembly totals (authoritative, from single TRX, clean UTF-8):")
+[void]$sb.AppendLine("== per-assembly totals (authoritative, aggregated across $($trxFiles.Count) TRX file(s), clean UTF-8):")
 foreach ($k in $map.Keys) {
     $e = $map[$k]
     [void]$sb.AppendLine(("  {0}  pass={1}  total={2}" -f $k, $e.pass, $e.total))
