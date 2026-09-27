@@ -1,0 +1,58 @@
+<Project>
+
+  <!--
+    ============================================================================
+    移除 FFmpeg 运行时（方案 B）— Remove FFmpeg runtime (Option B)
+    ============================================================================
+
+    背景 / Context
+    OpenCvSharp4.runtime.win 随包分发 opencv_videoio_ffmpeg4130_64.dll，其中封装了
+    FFmpeg。经核实该 FFmpeg 构建为 LGPL-2.1-or-later（OpenCV 官方
+    3rdparty/ffmpeg/readme.txt：Windows 预编译版本 "without GPL components"，
+    且为 "LGPL library, not BSD libraries"），无 GPL 传染。
+
+    随包分发该 DLL 须履行 LGPL 义务：附 COPYING.LGPLv2.1 全文 + 对应版本源码或书面
+    要约 + 允许用户替换。本产品主用途为相机实时取像，走 DirectShow/MSMF 后端，
+    不依赖 FFmpeg。故采用方案 B：发布包中排除该 DLL，从而不触发上述义务。
+
+    为何连 build 输出也一并移除
+    若只在 publish 时删除，开发/测试环境仍带 FFmpeg，而发布产物不带，会造成
+    「测试覆盖的原生能力」与「实际交付的」不一致的漂移，是难以察觉的交付缺陷。
+    因此此处对 OutDir 与 PublishDir 一并移除，使测试环境与交付环境一致。
+
+    能力影响 / Capability impact
+    相机实时取像（OpenCvVisionProvider.grab -> VideoCapture, VideoCaptureAPIs.ANY）：
+    不受影响，继续由 DirectShow / MSMF 后端处理。
+    视频文件解码（依赖 FFmpeg 的容器/编码，如部分 mp4/h264）：将不可用。
+    替代方案：使用 OpenCV 自带的 MJPG 编码器（CV_FOURCC('M','J','P','G') 写入 .avi），
+    官方明示可放心使用，无需 FFmpeg。
+    本项目代码不使用 VideoWriter / Cv2.ImShow / highgui，故无其他影响。
+
+    若日后需要视频文件回放：改用 MJPG，或回退到方案 A 并补齐 LGPL 全文、源码要约与
+    允许替换的说明（届时须删除本文件并更新 third-party/ffmpeg/NOTICE.md）。
+
+    详见：third-party/ffmpeg/NOTICE.md、docs/DELIVERY-AGREEMENT.md section 7
+    ============================================================================
+  -->
+
+  <PropertyGroup>
+    <FfmpegRuntimePattern>runtimes\win-x64\native\opencv_videoio_ffmpeg*.dll</FfmpegRuntimePattern>
+  </PropertyGroup>
+
+  <Target Name="RemoveFfmpegRuntimeFromOutput" AfterTargets="Build">
+    <ItemGroup>
+      <_FfmpegInOutput Include="$(OutDir)$(FfmpegRuntimePattern)" />
+    </ItemGroup>
+    <Delete Files="@(_FfmpegInOutput)" ContinueOnError="true" />
+    <Message Importance="high" Text="[licensing] excluded FFmpeg runtime from build output (LGPL option B)" />
+  </Target>
+
+  <Target Name="RemoveFfmpegRuntimeFromPublish" AfterTargets="Publish" Condition="'$(PublishDir)' != ''">
+    <ItemGroup>
+      <_FfmpegInPublish Include="$(PublishDir)$(FfmpegRuntimePattern)" />
+    </ItemGroup>
+    <Delete Files="@(_FfmpegInPublish)" ContinueOnError="true" />
+    <Message Importance="high" Text="[licensing] excluded FFmpeg runtime from publish output (LGPL option B)" />
+  </Target>
+
+</Project>

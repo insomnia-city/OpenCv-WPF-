@@ -44,13 +44,19 @@
 `3rdparty/ffmpeg/readme.txt` 明确其 Windows 预编译版本
 「built with proper flags (**without GPL components**)」且为「**LGPL library, not BSD libraries**」。
 
-**因此不存在 GPL 传染。** 分发时须在以下两者中择一（详见
-[`third-party/ffmpeg/NOTICE.md`](third-party/ffmpeg/NOTICE.md)）：
+**因此不存在 GPL 传染。** 已选定并实施**方案 B：从发布包中排除该 DLL**，
+故 LGPL 的源码提供、书面要约、允许替换等义务**均不触发**。实施方式为仓库根
+`Directory.Build.targets`（`RemoveFfmpegRuntimeFromOutput` /
+`RemoveFfmpegRuntimeFromPublish`），在 `Build` 与 `Publish` 之后删除
+`runtimes\win-x64\native\opencv_videoio_ffmpeg*.dll`。
 
-- **方案 A（随包分发）**：须附 FFmpeg `COPYING.LGPLv2.1` 全文 + 对应版本源码或书面要约
-  + 允许用户替换该 DLL。⚠ 本仓库**尚未**包含这些内容，属 §7 事项 2 必须补齐项。
-- **方案 B（排除该 DLL）**：不分发即不触发 LGPL 义务；相机取像仍走 DirectShow/MSMF，
-  仅失去 FFmpeg 视频文件解码能力。**建议采用此方案。**
+> 连 **build 输出也一并删除**（而非仅 publish），以免开发/测试环境带 FFmpeg 而发布产物
+> 不带，导致「测试覆盖的原生能力」与「实际交付的」出现漂移。
+
+**能力影响（已核实）**：相机实时取像不受影响（`grab` 走 `VideoCapture` +
+`VideoCaptureAPIs.ANY`，由 DirectShow/MSMF 处理）；全仓不使用 `VideoWriter` /
+`Cv2.ImShow` / highgui。仅失去依赖 FFmpeg 的视频文件解码，日后若需要可用 OpenCV 自带
+MJPG 编码器替代。详见 [`third-party/ffmpeg/NOTICE.md`](third-party/ffmpeg/NOTICE.md)。
 
 ### 关于 NuGet 包不携带许可文件
 

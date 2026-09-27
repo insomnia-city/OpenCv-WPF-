@@ -33,32 +33,39 @@ OpenCV 官方给出明确指引：
 > still be able to do that using other API, such as **Video for Windows, Windows Media
 > Foundation** or our self-contained motion jpeg codec).
 
-### 方案 A：随包分发该 DLL（保留 FFmpeg 视频解码）
+### ✅ 已采用：方案 B（排除该 DLL）
+
+**决定日期：2026-09-27。经审阅后选定方案 B。**
+
+`Directory.Build.targets`（仓库根）中的 `RemoveFfmpegRuntimeFromOutput` 与
+`RemoveFfmpegRuntimeFromPublish` 两个 target，在 `Build` 与 `Publish` 之后删除
+`runtimes\win-x64\native\opencv_videoio_ffmpeg*.dll`。
+
+**从 build 输出也一并删除（而非只在 publish 时删）**，是为避免「测试覆盖的原生能力」
+与「实际交付的」不一致：若开发/测试环境仍带 FFmpeg 而发布产物不带，两者行为会出现
+难以察觉的漂移。故测试环境与交付环境保持一致。
+
+**因不分发该 DLL，LGPL 的源码提供、书面要约、允许替换等义务均不触发。**
+本仓库因此**无需**附带 `COPYING.LGPLv2.1` 全文与 FFmpeg 源码要约。
+
+**能力影响（已核实）**：
+
+- 相机实时取像不受影响。`OpenCvVisionProvider.grab` 使用
+  `VideoCapture(..., VideoCaptureAPIs.ANY)`，枚举到相机时由 **DirectShow / MSMF** 后端处理，
+  不经 FFmpeg。
+- 本项目代码不使用 `VideoWriter`、`Cv2.ImShow` 或任何 highgui API，全仓无相关引用。
+- **仅失去**依赖 FFmpeg 的视频文件解码（部分 mp4/h264 容器与编码）。若日后需要视频文件
+  回放，改用 OpenCV 自带 **MJPG** 编码器（`CV_FOURCC('M','J','P','G')` 写入 `.avi`）即可，
+  官方明示可放心使用，无需 FFmpeg。
+
+**若日后要改为随包分发（方案 A）**：须删除 `Directory.Build.targets` 中的两个 target，
+并补齐 LGPL 全文 + 对应版本源码或书面要约 + 允许用户替换的说明。
+
+### 方案 A（备选，未采用）：随包分发该 DLL
 
 须同时履行 LGPL 的以下义务：
 
 1. 附带 FFmpeg 的 `COPYING.LGPLv2.1`（及 `COPYING.LGPLv3` 若涉及）**全文**；
-2. 提供 FFmpeg **对应版本的完整源码**或**书面要约**（ LGPL-2.1 §4 / §6；
+2. 提供 FFmpeg **对应版本的完整源码**或**书面要约**（LGPL-2.1 §4 / §6；
    书面要约通常有效期至少三年）；
 3. 允许用户替换该 DLL（LGPL 的「可重新链接」要求）。
-
-> ⚠ **本仓库尚未包含 FFmpeg 的 `COPYING.LGPLv2.1` 全文与源码要约文本。**
-> 这是交付协议 §7 事项 2（安装包/部署脚本）**必须补齐**的内容，
-> 不可仅以本文件代替。
-
-### 方案 B：发布包中排除该 DLL
-
-- 直接**不分发** `opencv_videoio_ffmpeg4130_64.dll`，即不触发上述 LGPL 义务。
-- 影响：本产品**无法**用 FFmpeg 后端解码视频文件。
-- 相机取像（`OpenCvVisionProvider.grab` 走的 `VideoCapture` 设备索引路径）
-  仍可用 **DirectShow / MSMF** 后端，不依赖 FFmpeg。
-- 若后续需要「读取视频文件」能力，可用 OpenCV 自带的 **MJPG 编码器**
-  （`CV_FOURCC('M','J','P','G')` 写入 `.avi`），官方明示可放心使用。
-
-### 建议
-
-**采用方案 B（排除该 DLL）**。理由：本产品主用途是相机实时取像，不依赖 FFmpeg；
-排除后 LGPL 义务归零，合规面最小。若日后确有视频文件回放需求，再转方案 A 并补齐
-LGPL 全文与源码要约。
-
-> 该决策属交付协议 §7 事项 2 的实施细节，最终以发布包实际内容为准。

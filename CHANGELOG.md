@@ -17,14 +17,15 @@
 - [ ] 运维文档（安装手册、故障排查、参数备份恢复）
 - [ ] 版本治理基建（`LICENSE`、发布 tag 策略）
 - [ ] 人工可操作仿真演示件（不依赖硬件）
-- [ ] 分发包附 FFmpeg `COPYING.LGPLv2.1` 全文与源码/书面要约（仅在选择随包分发该 DLL 时需要；
-      建议改为排除该 DLL 以规避）
 
 已关闭：
 
 - [x] 核实 `opencv_videoio_ffmpeg4130_64.dll` 内 FFmpeg 的实际许可 → **LGPL-2.1-or-later，
       非 GPL-2.0**（OpenCV 官方 `3rdparty/ffmpeg/readme.txt`：Windows 预编译版本
       "without GPL components"），无 GPL 传染。
+- [x] FFmpeg 分发路径定案 → **采用方案 B（排除该 DLL）**，由 `Directory.Build.targets`
+      在 Build/Publish 后删除；已实测发布产物中残留为 0，相机取像不受影响。
+      故不再需要随包附 LGPL 全文与源码要约。
 
 ---
 
