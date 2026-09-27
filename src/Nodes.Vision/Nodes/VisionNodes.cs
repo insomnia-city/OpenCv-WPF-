@@ -30,13 +30,6 @@ public sealed class ThresholdParameters
     public int Max { get; set; } = 255;
 }
 
-/// <summary>Generic .hdev procedure parameters. / 通用 .hdev 脚本参数</summary>
-public sealed class HdevParameters
-{
-    [NodeParameter("Procedure", "Script", description: "Procedure name resolved by the engine registry. / 由引擎注册表解析的过程名")]
-    public string Procedure { get; set; } = "simulate_probe";
-}
-
 /// <summary>
 /// Measurement result flowing on a ResultDescriptor port. / 在 Result 端口上流转的测量结果
 /// </summary>
@@ -120,36 +113,9 @@ internal sealed class MeasureNode : VisionNodeBase
 }
 
 /// <summary>
-/// vision.hdev — generic HDevProcedure node; in fallback mode it resolves procedures
-/// from the engine registry, on a deployed Halcon host it loads .hdev procedures (§6.1).
-/// / vision.hdev — 通用 HDevProcedure 节点;回退模式由引擎注册表解析过程,部署到 Halcon 主机则加载 .hdev（§6.1）
-/// </summary>
-internal sealed class HdevNode : VisionNodeBase, IParameterized
-{
-    public HdevParameters Params { get; } = new();
-
-    public HdevNode(string id) : base(id, new NodeContract("vision.hdev", 1),
-        execIn: true, execOut: true,
-        ("image", ImageDescriptor.Instance, true))
-    {
-        AddDataOut("image", ImageDescriptor.Instance);
-    }
-
-    public object ParameterObject => Params;
-
-    protected override async Task RunAsync(IExecutionContext ctx, IVisionEngine engine, CancellationToken ct)
-    {
-        var image = ctx.GetData("image") as VisionFrame;
-        var args = new Dictionary<string, object> { ["procedure"] = Params.Procedure };
-        var frame = (VisionFrame)await engine.ExecuteAsync("hdev", image, args, ct);
-        ctx.SetData("image", frame);
-    }
-}
-
-/// <summary>
-/// vision.tomat — bridge HObject→Mat, flipping frame provenance without touching pixels (§6.4). 
+/// vision.tomat — bridge Synthetic frame→Mat, flipping frame provenance without touching pixels (§6.4). 
 /// Emits the Mat-provenance frame on the "image" output tag.
-/// / vision.tomat — HObject→Mat 桥,只翻转帧来源域、不改像素（§6.4）。Mat 域帧输出到 "image"
+/// / vision.tomat — Synthetic frame→Mat 桥,只翻转帧来源域、不改像素（§6.4）。Mat 域帧输出到 "image"
 /// </summary>
 internal sealed class ToMatNode : VisionNodeBase
 {
@@ -170,8 +136,8 @@ internal sealed class ToMatNode : VisionNodeBase
 }
 
 /// <summary>
-/// vision.tohobject — bridge Mat→HObject, flipping frame provenance back (§6.4). 
-/// / vision.tohobject — Mat→HObject 桥,将来源域翻回 Halcon（§6.4）
+/// vision.toSynthetic frame — bridge Mat→Synthetic frame, flipping frame provenance back (§6.4). 
+/// / vision.toSynthetic frame — Mat→Synthetic frame 桥,将来源域翻回 Synthetic（§6.4）
 /// </summary>
 internal sealed class ToHObjectNode : VisionNodeBase
 {

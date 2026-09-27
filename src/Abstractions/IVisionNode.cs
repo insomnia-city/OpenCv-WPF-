@@ -32,8 +32,8 @@ public interface IVisionEnginePool : IAsyncDisposable
 public interface IVisionEngineLease : IDisposable
 {
     /// <summary>
-    /// Engine instance; may be a Halcon or OpenCV engine. Each instance is non-thread-safe. 
-    /// 引擎实例;Halcon 或 OpenCV 引擎。每个实例非线程安全
+    /// Engine instance; may be a OpenCV or phantom engine. Each instance is non-thread-safe. 
+/// / 引擎实例;OpenCV 或 phantom 引擎。每个实例非线程安全。
     /// </summary>
     object Engine { get; }
 }

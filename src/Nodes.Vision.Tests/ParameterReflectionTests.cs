@@ -61,7 +61,6 @@ public class ParameterReflectionTests
     {
         Assert.IsType<GrabParameters>(((IParameterized)CreateNode("grab")).ParameterObject);
         Assert.IsType<ThresholdParameters>(((IParameterized)CreateNode("threshold")).ParameterObject);
-        Assert.IsType<HdevParameters>(((IParameterized)CreateNode("hdev")).ParameterObject);
     }
 
     private static object CreateNode(string contractName)

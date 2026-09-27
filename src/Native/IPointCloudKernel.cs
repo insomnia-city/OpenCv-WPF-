@@ -2,10 +2,10 @@ namespace HalconWorkflow.Native;
 
 /// <summary>
 /// A point-cloud compute kernel (native vx_* or managed fallback). Instances are NOT thread-safe:
-/// the pool leases exactly one caller at a time, mirroring <c>HalconEnginePool</c> semantics
+/// the pool leases exactly one caller at a time, mirroring <c>VisionEnginePool</c> semantics
 /// (§6.3). All heavy calls are asynchronous-shaped and cooperatively cancellable.
 /// / 点云计算内核(原生 vx_* 或托管回退)。实例非线程安全：由池一次借给一个调用方，
-///   与 HalconEnginePool 语义一致(§6.3)。重型调用均为异步形态且支持协作式取消。
+///   与 VisionEnginePool 语义一致(§6.3)。重型调用均为异步形态且支持协作式取消。
 /// </summary>
 public interface IPointCloudKernel : IDisposable
 {

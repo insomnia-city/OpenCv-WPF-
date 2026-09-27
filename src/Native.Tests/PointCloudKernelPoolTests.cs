@@ -5,8 +5,8 @@ namespace HalconWorkflow.Native.Tests;
 
 /// <summary>
 /// Stage-10 gate: policy that caps parallelism and releases slots correctly — cancellation of a
-/// borrow consumes no slot and leaks nothing — mirrors <c>HalconEnginePool</c> (§6.3).
-/// / 阶段 10 闸门：限制并行度并正确释放槽位的策略——取消借出不占槽位不泄漏——与 HalconEnginePool 一致(§6.3)。
+/// borrow consumes no slot and leaks nothing — mirrors <c>VisionEnginePool</c> (§6.3).
+/// / 阶段 10 闸门：限制并行度并正确释放槽位的策略——取消借出不占槽位不泄漏——与 VisionEnginePool 一致(§6.3)。
 /// </summary>
 public sealed class PointCloudKernelPoolTests
 {

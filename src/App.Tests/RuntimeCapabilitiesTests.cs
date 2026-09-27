@@ -10,13 +10,13 @@ namespace HalconWorkflow.App.Tests;
 /// <summary>
 /// Stage-15 gate: field-readiness self-check (real backend vs §6.3 fallback surfaced to
 /// the operator) and last-resort crash logging. The capability probes are injected, so
-/// every combination is exercised without any hardware or Halcon SDK.
+/// every combination is exercised without any hardware or OpenCV SDK.
 /// / 阶段15 闸门：现场就绪自检（向操作员呈现真实后端 vs §6.3 回退）+ 最后防线崩溃日志。
-///   能力探测可注入，任意组合在无硬件/无 Halcon SDK 时均可覆盖。
+///   能力探测可注入，任意组合在无硬件/无 OpenCV SDK 时均可覆盖。
 /// </summary>
 public sealed class RuntimeCapabilitiesTests
 {
-    private const string RuntimePath = @"C:\fake\MVTec\HALCON-24.11\bin\x64-win64\halcondotnet.dll";
+    private const string RuntimeDescription = "OpenCV 4.13.0";
 
     private static MotionDriverProbe NativeProbe()
         => new("googol", 0, IsNative: true, IsFallback: false, "native gmotion loaded");
@@ -28,7 +28,7 @@ public sealed class RuntimeCapabilitiesTests
     [Fact]
     public void Collect_AllReal_ReportsBothCapabilitiesReal()
     {
-        var caps = RuntimeCapabilities.Collect(() => RuntimePath, () => true, NativeProbe);
+        var caps = RuntimeCapabilities.Collect(() => RuntimeDescription, () => true, NativeProbe);
 
         Assert.Equal(2, caps.Count);
         Assert.Equal(new[] { "capability.vision", "capability.motion" },
@@ -44,23 +44,23 @@ public sealed class RuntimeCapabilitiesTests
 
         var vision = caps.Single(c => c.LabelKey == "capability.vision");
         Assert.False(vision.Real);
-        Assert.Contains("no Halcon runtime", vision.Detail);
+        Assert.Contains("no OpenCV native runtime", vision.Detail);
     }
 
     [Fact]
     public void Collect_RuntimeWithoutAdapter_VisionIsFallback()
     {
-        var caps = RuntimeCapabilities.Collect(() => RuntimePath, () => false, NativeProbe);
+        var caps = RuntimeCapabilities.Collect(() => RuntimeDescription, () => false, NativeProbe);
 
         var vision = caps.Single(c => c.LabelKey == "capability.vision");
         Assert.False(vision.Real);
-        Assert.Contains("no adapter registered", vision.Detail);
+        Assert.Contains("no provider registered", vision.Detail);
     }
 
     [Fact]
     public void Collect_MotionFallback_SurfacesProbeMessage()
     {
-        var caps = RuntimeCapabilities.Collect(() => RuntimePath, () => true, FallbackProbe);
+        var caps = RuntimeCapabilities.Collect(() => RuntimeDescription, () => true, FallbackProbe);
 
         var motion = caps.Single(c => c.LabelKey == "capability.motion");
         Assert.False(motion.Real);

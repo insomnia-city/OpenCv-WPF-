@@ -24,41 +24,42 @@ public sealed record CapabilityStatus(string LabelKey, bool Real, string Detail)
 /// </summary>
 public static class RuntimeCapabilities
 {
-    /// <summary>Production probes: Halcon runtime/adapter + Googol motion driver. · 生产探测：Halcon 运行时/适配器 + 固高运动驱动</summary>
+    /// <summary>Production probes: OpenCV runtime/provider + Googol motion driver. · 生产探测：OpenCV 运行时/提供器 + 固高运动驱动</summary>
     public static IReadOnlyList<CapabilityStatus> Collect()
         => Collect(
-            HalconProbe.TryLocateManagedAssembly,
-            () => HalconAdapterRegistry.IsRegistered,
+            OpenCvProbe.TryDescribeRuntime,
+            () => VisionProviderRegistry.IsRegistered,
             () => MotionDriverFactory.Probe("googol", 0));
 
     /// <summary>
     /// Builds the report from injectable probes (test seam). · 由可注入探测构建报告（测试接缝）
     /// </summary>
     public static IReadOnlyList<CapabilityStatus> Collect(
-        Func<string?> locateHalcon,
-        Func<bool> halconAdapterRegistered,
+        Func<string?> describeOpenCvRuntime,
+        Func<bool> visionProviderRegistered,
         Func<MotionDriverProbe> motionProbe)
     {
-        ArgumentNullException.ThrowIfNull(locateHalcon);
-        ArgumentNullException.ThrowIfNull(halconAdapterRegistered);
+        ArgumentNullException.ThrowIfNull(describeOpenCvRuntime);
+        ArgumentNullException.ThrowIfNull(visionProviderRegistered);
         ArgumentNullException.ThrowIfNull(motionProbe);
 
-        return [DescribeVision(locateHalcon(), halconAdapterRegistered()), DescribeMotion(motionProbe())];
+        return [DescribeVision(describeOpenCvRuntime(), visionProviderRegistered()), DescribeMotion(motionProbe())];
     }
 
     /// <summary>
-    /// Vision capability: real only when a licensed runtime is present AND a deployment
-    /// adapter is registered (the exact preconditions <c>VisionEngineFactory</c> needs).
-    /// / 视觉能力：仅当存在授权运行时且已注册部署适配器时为真实（正是 VisionEngineFactory 所需的前提）。
+    /// Vision capability: real only when the OpenCV native runtime loads AND a provider is
+    /// registered (the exact preconditions <c>VisionEngineFactory</c> needs).
+    /// / 视觉能力：仅当 OpenCV 原生运行时可加载且已注册提供器时为真实
+    ///   （正是 VisionEngineFactory 所需的前提）。
     /// </summary>
-    private static CapabilityStatus DescribeVision(string? managedAssembly, bool adapterRegistered)
+    private static CapabilityStatus DescribeVision(string? runtimeDescription, bool providerRegistered)
     {
-        if (managedAssembly is null)
-            return new CapabilityStatus("capability.vision", false, "no Halcon runtime detected; phantom fallback");
-        return adapterRegistered
-            ? new CapabilityStatus("capability.vision", true, "Halcon runtime + deployment adapter registered")
+        if (runtimeDescription is null)
+            return new CapabilityStatus("capability.vision", false, "no OpenCV native runtime detected; phantom fallback");
+        return providerRegistered
+            ? new CapabilityStatus("capability.vision", true, $"OpenCV runtime ({runtimeDescription}) + provider registered")
             : new CapabilityStatus("capability.vision", false,
-                "Halcon runtime present but no adapter registered; phantom fallback");
+                "OpenCV runtime present but no provider registered; phantom fallback");
     }
 
     /// <summary>Motion capability straight from the driver probe. · 运动能力直接取自驱动探测。</summary>

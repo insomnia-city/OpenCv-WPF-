@@ -46,7 +46,6 @@ public sealed class AccentToBrushConverter : IValueConverter
         ["grab"] = new SolidColorBrush(Color.FromRgb(0x21, 0x96, 0xF3)),
         ["threshold"] = new SolidColorBrush(Color.FromRgb(0x00, 0xBC, 0xD4)),
         ["measure"] = new SolidColorBrush(Color.FromRgb(0xFF, 0x70, 0x43)),
-        ["hdev"] = new SolidColorBrush(Color.FromRgb(0x7E, 0x57, 0xC2)),
         ["tomat"] = new SolidColorBrush(Color.FromRgb(0x1E, 0x88, 0xE5)),
         ["tohobject"] = new SolidColorBrush(Color.FromRgb(0x00, 0x89, 0x7B)),
         ["decision"] = new SolidColorBrush(Color.FromRgb(0xFF, 0x98, 0x00)),

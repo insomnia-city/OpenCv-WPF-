@@ -12,9 +12,9 @@
 ├──────────────────────────────────────────────────────┤
 │ 图引擎内核       GraphModel · 类型系统 · 调度器 · 序列化（零 UI 依赖） │
 ├──────────────────────────────────────────────────────┤
-│ 能力层（插件）    视觉节点库(Halcon) │ 通讯节点库 │ 采集/IO │ 脚本节点 │
+│ 能力层（插件）    视觉节点库(OpenCV) │ 通讯节点库 │ 采集/IO │ 脚本节点 │
 ├──────────────────────────────────────────────────────┤
-│ 基础设施         DI · 插件装载(MEF/ALC) · Serilog · 事件总线 · Polly   │
+│ 基础设施         插件装载(ALC) · 事件总线 · 配置持久化(appsettings.json) │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@
 
 ## 技术栈
 
-.NET 9 · CommunityToolkit.MVVM · Nodify · Serilog · ScottPlot · Polly · halcondotnet.dll · **OpenCvSharp4（OpenCV 并行）** · C++ 原生计算内核（体素/点云热点） · SQLite/SQL Server/MySQL (Dapper)
+.NET 9 · CommunityToolkit.MVVM 8.4.2 · Nodify 7.3.0 · **OpenCvSharp4 4.13.0.20260627（视觉后端，Apache-2.0）** · Dapper 2.1.35 + Microsoft.Data.Sqlite 9.0.0（存储） · C++ 原生计算内核（体素/点云热点） · xUnit 2.9.x（测试）
 
 ## 状态
 
@@ -315,7 +315,7 @@
 - `ImageWindow`（App/Views/ImageWindow.xaml + .cs）— 真实 WPF 窗口：`DispatcherTimer` 在 UI 线程驱动 `Tick()`；工具栏（上/下一帧、刷新）+ 实时/ROI/十字线开关 + 历史计数；`BytesToImageConverter` 渲染快照
 - `IDialogService.ShowImageWindow(ImageWindowViewModel vm)`：`WindowsDialogService` 打开真实窗口（MessageBox 桩已移除）；`MainWindow` 工具栏「图像窗」按钮；`PreviewRing` 增 `Published` 事件
 - 专项测试：`App.Tests/ImageWindowViewModelTests.cs` **10 项**（订阅/退订幂等、重复打开幂等、节点过滤、Tick 只收最新、实时门控、历史导航边界、浏览中门控、清空不复活、从 Ring 冷启动、多语言文案）
-- 全解决方案：**413 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 全解决方案：**421 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 56 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
   - 注：协议/调试/图像窗三阶段账号见上；App 启动冒烟 6 秒存活
 
 **阶段 30（设置/选项对话框：appsettings.json + 语言/日志目录/预览开关/追溯保留）已落地**：
@@ -323,9 +323,20 @@
 - `SettingsViewModel`（App/ViewModels）— 绑定当前快照**副本**；四字段（语言固定枚举 zh-Hans/en-US/ko-KR、日志目录、预览开关、追溯保留天数）可编辑，确定时提交**不可变替换 record**、Cancel 留 `Result == null`；保留天数 `Math.Max(0, …)` 钳制
 - 对话框接缝 — `IDialogService.EditSettings(AppSettings?)` **默认接口实现返回 null**（测试伪服务零改动）+ `WindowsDialogService` 打开真实 WPF `SettingsDialog`（OK 提交 `Result`，Cancel 留 ambient 不动）；`App.OnStartup` 依 `SettingsPath` 播种 `AppServices.Settings`
 - 壳层接线 — `ShellViewModel.OpenSettingsCommand`（§5.8，工具栏绑定 `MenuSettings`/`OpenSettingsCommand`）：确定后 Shell 以 record 快照**整体替换** ambient `AppServices.Settings`（绝不修改 init-only 实例），应用语言重本地化 + 预览开关、按新保留值修剪审计/图像归档、记 `AuditActions.ChangeSettings`（`settings.edit`）并持久化 appsettings.json
-- 阶段闸门（§5.8 阶段30）：缺文件/损坏回退默认值 + 四开关 JSON 往返 + 保留天数钳制 → `App.Tests` 随壳层/SettingsViewModel 既有门覆盖；全解决方案 **413 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 48 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+- 阶段闸门（§5.8 阶段30）：缺文件/损坏回退默认值 + 四开关 JSON 往返 + 保留天数钳制 → `App.Tests` 随壳层/SettingsViewModel 既有门覆盖；全解决方案 **421 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 56 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
   - 注：设置改动（语言/预览/保留）走不可变 record 快照替换 + 审计；App 启动冒烟 6 秒存活
 
-> 已落地 1~24、30。后续按 P0→P4 排期：25 诊断视图（ScottPlot）、26 OpenCV 桥、27 `Nodes.OpenCV`、28 DNN/Onnx、29 节点元数据本地化、31 EStop 快通道（详见 DESIGN §13.1）。现场真实 Halcon / 运动卡 / 相机仍受硬件授权阻塞。
+**阶段 26（视觉后端迁移：HALCON → OpenCV 4.13）已落地**：
+- **决策依据（实测）** — 本机 HALCON 12.0 仅 x86（`D:\Program Files\MVTec\HALCON-12.0`），托管程序集可加载但任何原生调用抛 `System.BadImageFormatException`（HRESULT `0x8007000B`），且无 x64 授权；无 x64 HALCON 运行时即无法交付，故按实际代码原则弃用 HALCON，改用 Apache-2.0 的 OpenCvSharp4。已用独立 x64 `net9.0` 探针实测通过：原生加载 OK、`Cv2.GetVersionString()` = 4.13.0、阈值分割 PASS
+- 真实提供器 — `OpenCvVisionProvider`（Nodes.Vision/Adapters）实现 `grab`（`VideoCapture` 真实取像，设备不可用**抛错而非伪造图像**）、`threshold`、 `measure`（连通域统计）；`threshold` 用 `Cv2.InRange` 实现**双侧闭窗口** `min ≤ 灰度 ≤ max`（`ThresholdTypes.Binary` 只与 `thresh` 比较、会静默忽略 `max`，故不可用），`measure` 以 `thresh = level-1` 对齐幻影引擎的 `≥` 闭区间分割
+- 命名泛化 — `IHalconAdapter`→`IVisionProvider`、`HalconAdapterRegistry`→`VisionProviderRegistry`、`HalconVisionEngine`→`OpenCvVisionEngine`、`FakeHalconAdapter`→`FakeVisionProvider`、`FrameDomain.Halcon`/`AsHalcon()`→`FrameDomain.Synthetic`/`AsSynthetic()`；删除 `HalconDotNetAdapter`（x86-only）与仅存于 `D:\Program Files\MVTec\...` 的路径探测
+- **下线 `hdev`** — OpenCV 无 `HDevEngine` 对应物，故整条链移除：`HdevParameters`/`HdevNode`、`VisionNodeFactory` 注册、壳层调色板项（26→25）、配色资源、三语 `palette.hdev` 文案与对应测试
+- 生产接线 — `App.OnStartup` 在 `OpenCvProbe` 确认原生可用时显式注册 `OpenCvVisionProvider`（保留「真实引擎必须显式注册」的工厂策略），不可用则记警告并回退 `PhantomVisionEngine`；`RuntimeCapabilities` 能力面板改报 OpenCV 运行时 + 提供器注册态
+- 新增闸门（**真跑 x64 原生，无 mock**）— `Nodes.Vision.Tests/OpenCvVisionProviderTests.cs` **9 项**：原生运行时可加载、提供器声明 op/拒绝 `hdev`、双侧阈值闭区间边界、窄 `max` 裁剪回归、非灰度输入拒绝、`measure` 单/双连通域与幻影一致、无设备 `grab` 必抛、未知算子拒绝
+- 顺带修复既有竞态 — `LogViewModel.Add` 此前无锁，调度线程追加日志行会让 `TriggerIntegrationTests` 枚举抛 `Collection was modified`（偶发红）；改为锁内追加 + 新增 `Snapshot()` 供非 UI 线程读取，**App.Tests 连续 5 轮零失败**
+- 全解决方案 **421 项单测全绿**（67 Core + 24 Nodes.Flow + 115 App + 56 Nodes.Vision + 11 Runtime + 44 Protocols + 15 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native + 13 Plugins）
+  - 注：相机现场验收受硬件阻塞（`grab` 现场路径待接实机）；仿真验收暂缓，`PhantomVisionEngine` 仅作测试后备
+
+> 已落地 1~24、26、30。后续按 P0→P4 排期：25 诊断视图（绘图库待选，原 ScottPlot 未引入）、27 `Nodes.OpenCV` 独立节点库、28 DNN/Onnx、29 节点元数据本地化、31 EStop 快通道（详见 DESIGN §13.1）。现场真实运动卡 / 相机 / PLC 仍受硬件阻塞；HALCON 路线已终止，不再是待办项。
 
 本地化（中/英/韩）与双语注释规范见 DESIGN §4.8 / §4.9。

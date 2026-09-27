@@ -3,12 +3,12 @@ using HalconWorkflow.Nodes.Vision.Imaging;
 namespace HalconWorkflow.Nodes.Vision.Engines;
 
 /// <summary>
-/// A single visual engine instance (Halcon or fallback phantom). Instances are NOT
+/// A single visual engine instance (OpenCV or fallback phantom). Instances are NOT
 /// thread-safe: exactly one executor uses an instance at a time (§6.2). Ops are
-/// named so the same graph node payload can run on a real Halcon engine or a
+/// named so the same graph node payload can run on a real OpenCV engine or a
 /// software fallback (§6.3 "software fallback").
-/// / 单个视觉引擎实例（Halcon 或软件回退幻影）。实例非线程安全：一个执行线程独占（§6.2）。
-///   操作按名调度，同一节点载荷既可跑真实 Halcon 也能跑软回退（§6.3）。
+/// / 单个视觉引擎实例（OpenCV 或软件回退幻影）。实例非线程安全：一个执行线程独占（§6.2）。
+///   操作按名调度，同一节点载荷既可跑真实 OpenCV 也能跑软回退（§6.3）。
 /// </summary>
 public interface IVisionEngine : IDisposable
 {

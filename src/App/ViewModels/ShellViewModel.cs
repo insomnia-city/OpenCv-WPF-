@@ -58,9 +58,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     private readonly NodeSnapshotCache _snapshotCache;
     private readonly GraphScheduler _scheduler;
     private readonly UndoService _undo = new();
-    // Resolved at runtime: real Halcon adapter when the deployment site registers one and
+    // Resolved at runtime: real OpenCV provider when the deployment site registers one and
     // a licensed runtime is present; otherwise the deterministic phantom fallback (§6.3).
-    // / 运行期解析：部署现场注册适配器且存在授权运行时用真实 Halcon;否则确定性幻影回退（§6.3）。
+        // / 在运行时解析：部署方注册了提供器时用真实 OpenCV，否则回退到 phantom（§6.3）。
     private readonly VisionEnginePool _visionPool = new(
         () => VisionEngineFactory.CreateResolved(), capacity: 2);
     private readonly CommRuntime _comm;
@@ -563,7 +563,6 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         Palette.Add(new NodeCatalogItem("counter", _loc["palette.counter"], "flow.counter:1", id => FlowNodes.Counter(id)));
         Palette.Add(new NodeCatalogItem("delay", _loc["palette.delay"], "flow.delay:1", id => FlowNodes.Delay(id, 20)));
         Palette.Add(new NodeCatalogItem("measure", _loc["palette.measure"], "vision.measure:1", id => vision.Create(new NodeContract("vision.measure", 1), id)!));
-        Palette.Add(new NodeCatalogItem("hdev", _loc["palette.hdev"], "vision.hdev:1", id => vision.Create(new NodeContract("vision.hdev", 1), id)!));
         Palette.Add(new NodeCatalogItem("tomat", _loc["palette.tomat"], "vision.tomat:1", id => vision.Create(new NodeContract("vision.tomat", 1), id)!));
         Palette.Add(new NodeCatalogItem("tohobject", _loc["palette.tohobject"], "vision.tohobject:1", id => vision.Create(new NodeContract("vision.tohobject", 1), id)!));
         Palette.Add(new NodeCatalogItem("read", _loc["palette.read"], "comm.read:1", id => comm.Create(new NodeContract("comm.read", 1), id)!));

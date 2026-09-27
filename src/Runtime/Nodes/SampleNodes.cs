@@ -97,7 +97,7 @@ public static class SampleNodes
 
     /// <summary>
     /// Image handle placeholder (HObject would live here in the vision plugin). 
-    /// 图像句柄占位(Halcon 节点将在此承载 HObject)
+/// 图像占位(纯 .NET 合成像素缓冲)
     /// </summary>
     public sealed record ImageHandle;
 

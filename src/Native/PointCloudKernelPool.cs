@@ -1,10 +1,10 @@
 namespace HalconWorkflow.Native;
 
 /// <summary>
-/// Concrete borrow-return-cancel kernel pool, semantically identical to <c>HalconEnginePool</c>
+/// Concrete borrow-return-cancel kernel pool, semantically identical to <c>VisionEnginePool</c>
 /// (§6.3): parallelism is capped by capacity and <see cref="BorrowAsync"/> honours cancellation
 /// before a slot is consumed, so a cancelled borrow leaks nothing.
-/// / 实现借出-归还-取消的内核池，语义与 HalconEnginePool 完全一致(§6.3)：并行度受 capacity 约束;
+/// / 实现借出-归还-取消的内核池，语义与 VisionEnginePool 完全一致(§6.3)：并行度受 capacity 约束;
 ///   BorrowAsync 在占用槽位前响应取消，取消不泄漏槽位。
 /// </summary>
 public sealed class PointCloudKernelPool : IAsyncDisposable, IDisposable

@@ -3,18 +3,18 @@ namespace HalconWorkflow.Nodes.Vision.Adapters;
 /// <summary>
 /// Process-wide point for the deployment site to plug a real-SDK adapter into
 /// <see cref="VisionEngineFactory"/>. The factory probes the machine for a licensed
-/// Halcon runtime and, when one is present, asks this registry for an adapter. No
+/// OpenCV runtime and, when one is present, asks this registry for a provider. No
 /// adapter registered  ⇒ the resolver falls back to the deterministic phantom engine
 /// (§6.3) instead of failing. Registration is the deployment team's responsibility and
 /// is never done implicitly by this library.
 /// / 进程级部署接入点：部署现场把真实 SDK 适配器注册给 VisionEngineFactory。工厂先探测本机
-///   是否有授权 Halcon 运行时，命中时向本注册表索取适配器;未注册 ⇒ 解析器回退确定性幻影引擎
+///   是否有OpenCV 运行时，命中时向本注册表索取适配器;未注册 ⇒ 解析器回退确定性幻影引擎
 ///   （§6.3）而不是失败。注册由部署团队负责，本库绝不隐式注册。
 /// </summary>
-public static class HalconAdapterRegistry
+public static class VisionProviderRegistry
 {
     private static readonly object Lock = new();
-    private static Func<IHalconAdapter>? _factory;
+    private static Func<IVisionProvider>? _factory;
 
     /// <summary>Whether an adapter factory is currently registered. / 当前是否已注册适配器工厂</summary>
     public static bool IsRegistered
@@ -30,7 +30,7 @@ public static class HalconAdapterRegistry
     /// / 注册适配器工厂。后注册覆盖先注册;传 null 抛异常。工厂在解析器首次需要真实引擎时
     ///   （池借出）被调用——构造成本只付一次，且构造失败会回传给解析器而非击穿执行线程。
     /// </summary>
-    public static void Register(Func<IHalconAdapter> adapterFactory)
+    public static void Register(Func<IVisionProvider> adapterFactory)
     {
         ArgumentNullException.ThrowIfNull(adapterFactory);
         lock (Lock) _factory = adapterFactory;
@@ -49,9 +49,9 @@ public static class HalconAdapterRegistry
     /// factory or when construction failed (<paramref name="detail"/> carries the message).
     /// / 经已注册工厂创建适配器。无工厂返回 false;构造失败返回 false 且 detail 携带异常消息。
     /// </summary>
-    internal static bool TryCreate(out IHalconAdapter? adapter, out string? detail)
+    internal static bool TryCreate(out IVisionProvider? adapter, out string? detail)
     {
-        Func<IHalconAdapter>? factory;
+        Func<IVisionProvider>? factory;
         lock (Lock) factory = _factory;
         if (factory is null)
         {

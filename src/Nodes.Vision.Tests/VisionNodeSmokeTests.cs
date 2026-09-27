@@ -101,24 +101,6 @@ public class VisionNodeSmokeTests
     }
 
     [Fact]
-    public async Task Hdev_WithDefaultProcedure_EmitsGradientFrame()
-    {
-        await using var pool = new VisionEnginePool(() => new PhantomVisionEngine(), 1);
-        var graph = new GraphModel();
-        var images = new List<object?>();
-        var hdev = Create("vision.hdev");
-        var probe = new ProbeNode("probe", images, "image");
-        graph.AddNode(hdev); graph.AddNode(probe);
-        ChainExec(graph, hdev, probe);
-
-        await RunVisionAsync(graph, pool);
-
-        var frame = Assert.IsType<VisionFrame>(Assert.Single(images));
-        Assert.Equal(160, frame.Width);
-        Assert.Equal(120, frame.Height);
-    }
-
-    [Fact]
     public async Task ToMat_FlipsProvenance_ToMatDomain()
     {
         await using var pool = new VisionEnginePool(() => new PhantomVisionEngine(), 1);
@@ -137,7 +119,7 @@ public class VisionNodeSmokeTests
     }
 
     [Fact]
-    public async Task EndToEndBridge_ReturnsToHalconDomain()
+    public async Task EndToEndBridge_ReturnsToSyntheticDomain()
     {
         await using var pool = new VisionEnginePool(() => new PhantomVisionEngine(), 1);
         var graph = new GraphModel();
@@ -152,7 +134,7 @@ public class VisionNodeSmokeTests
         await RunVisionAsync(graph, pool);
 
         var frame = Assert.IsType<VisionFrame>(Assert.Single(images));
-        Assert.Equal(FrameDomain.Halcon, frame.Domain); // back to HObject after round trip / 经往返后回到 HObject
+        Assert.Equal(FrameDomain.Synthetic, frame.Domain); // back to HObject after round trip / 经往返后回到 HObject
     }
 }
 

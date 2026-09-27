@@ -141,7 +141,11 @@ public sealed class TriggerIntegrationTests : IDisposable
     }
 
     private static int FinishedCount(ShellViewModel shell)
-        => shell.Log.Entries.Count(e => e.Message.StartsWith("Run finished", StringComparison.Ordinal));
+        // Snapshot, not live enumeration: the scheduler thread appends log rows while
+        // this polls, which made the read throw "Collection was modified".
+        // 取快照而非实时枚举：调度线程在轮询期间追加日志行，曾导致读取抛
+        // "Collection was modified"。
+        => shell.Log.Snapshot().Count(e => e.Message.StartsWith("Run finished", StringComparison.Ordinal));
 
     private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
     {

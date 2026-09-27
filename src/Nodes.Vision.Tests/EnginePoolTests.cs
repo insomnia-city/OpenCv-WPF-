@@ -5,7 +5,7 @@ using Xunit;
 namespace HalconWorkflow.Nodes.Vision.Tests;
 
 /// <summary>
-/// Stage-5 gate 1: HalconEnginePool borrow-return-cancel assertions. The pool is
+/// Stage-5 gate 1: VisionEnginePool borrow-return-cancel assertions. The pool is
 /// exercised with the deterministic phantom engine; semantics are engine-agnostic.
 /// / 阶段 5 闸门 1：引擎池借出-归还-取消断言。以确定性幻影引擎验�?语义与真实引擎无关�?/// </summary>
 public class EnginePoolTests

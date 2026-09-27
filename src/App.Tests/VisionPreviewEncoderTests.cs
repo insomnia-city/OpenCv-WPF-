@@ -35,8 +35,8 @@ public sealed class VisionPreviewEncoderTests
     [Fact]
     public void ToPng_MultiChannelFormats_Encode()
     {
-        Assert.NotNull(VisionPreviewEncoder.ToPng(new VisionFrame(2, 2, PixFormat.Bgr8, new byte[2 * 2 * 3], FrameDomain.Halcon)));
-        Assert.NotNull(VisionPreviewEncoder.ToPng(new VisionFrame(2, 2, PixFormat.Bgra8, new byte[2 * 2 * 4], FrameDomain.Halcon)));
+        Assert.NotNull(VisionPreviewEncoder.ToPng(new VisionFrame(2, 2, PixFormat.Bgr8, new byte[2 * 2 * 3], FrameDomain.Synthetic)));
+        Assert.NotNull(VisionPreviewEncoder.ToPng(new VisionFrame(2, 2, PixFormat.Bgra8, new byte[2 * 2 * 4], FrameDomain.Synthetic)));
     }
 
     [Fact]

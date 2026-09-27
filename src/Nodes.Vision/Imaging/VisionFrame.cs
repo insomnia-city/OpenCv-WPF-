@@ -15,14 +15,14 @@ public enum PixFormat
 }
 
 /// <summary>
-/// Provenance domain of a frame. Bridges (HObject↔Mat) flip this without touching pixels. 
-/// / 帧的来源域;桥节点（HObject↔Mat）只翻转该域、不改像素
+/// Provenance domain of a frame. Bridges (Synthetic frame↔Mat) flip this without touching pixels. 
+/// / 帧的来源域;桥节点（Synthetic frame↔Mat）只翻转该域、不改像素
 /// </summary>
 public enum FrameDomain
 {
-    /// <summary>Halcon HObject semantics. / Halcon HObject 语义</summary>
-    Halcon,
-    /// <summary>OpenCV Mat semantics. / OpenCV Mat 语义</summary>
+    /// <summary>Simulated (software fallback) provenance. / 仿真（软回退）来源</summary>
+    Synthetic,
+    /// <summary>Real SDK (OpenCV Mat) semantics. / 真实 SDK（OpenCV Mat）语义</summary>
     Mat,
 }
 
@@ -40,7 +40,7 @@ public sealed class VisionFrame
     public int Height { get; }
     public PixFormat Format { get; }
 
-    /// <summary>Provenance domain (Halcon vs Mat). / 来源域（Halcon 或 Mat）</summary>
+    /// <summary>Provenance domain (Synthetic vs Mat). / 来源域（Synthetic 或 Mat）</summary>
     public FrameDomain Domain { get; private set; }
 
     /// <summary>Channels for the pixel format. / 当前格式的通道数</summary>
@@ -51,7 +51,7 @@ public sealed class VisionFrame
     /// <summary>
     /// Creates a frame; validates the buffer length up front. / 构造帧并前置校验缓冲长度
     /// </summary>
-    public VisionFrame(int width, int height, PixFormat format, byte[] bits, FrameDomain domain = FrameDomain.Halcon)
+    public VisionFrame(int width, int height, PixFormat format, byte[] bits, FrameDomain domain = FrameDomain.Synthetic)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -70,7 +70,7 @@ public sealed class VisionFrame
     /// <summary>
     /// Copies the backing buffer so callers can mutate safely. / 深拷贝载入缓冲，调用方可安全改字节
     /// </summary>
-    public static VisionFrame FromCopy(int width, int height, PixFormat format, byte[] src, FrameDomain domain = FrameDomain.Halcon)
+    public static VisionFrame FromCopy(int width, int height, PixFormat format, byte[] src, FrameDomain domain = FrameDomain.Synthetic)
     {
         src = (byte[])src.Clone();
         return new VisionFrame(width, height, format, src, domain);
@@ -79,8 +79,8 @@ public sealed class VisionFrame
     /// <summary>Marks this frame as Mat provenance (no pixel change). / 标记为 Mat 域（像素不变）</summary>
     public void AsMat() => Domain = FrameDomain.Mat;
 
-    /// <summary>Marks this frame as Halcon provenance (no pixel change). / 标记为 Halcon 域（像素不变）</summary>
-    public void AsHalcon() => Domain = FrameDomain.Halcon;
+    /// <summary>Marks this frame as Synthetic provenance (no pixel change). / 标记为 Synthetic 域（像素不变）</summary>
+    public void AsSynthetic() => Domain = FrameDomain.Synthetic;
 
     public VisionFrame Clone() => new(Width, Height, Format, (byte[])Bits.Clone(), Domain);
 

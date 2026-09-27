@@ -11,15 +11,18 @@ namespace HalconWorkflow.Nodes.Vision.Tests;
 /// fallback with a stable reason — resolution never throws. The machine probe is injected
 /// so all four states are exercised without a Halcon SDK.
 /// / 阶段 14 闸门：部署适配器解析策略。注册适配器工厂是选中真实引擎的唯一途径;其余状态一律带
-///   稳定原因降级幻影——解析永不抛异常。本机探测可注入，四态在无 Halcon SDK 下全覆盖。
+///   稳定原生探测，不需真实机器；异常路径由"显式注册"策略驱动，无需 OpenCV SDK 即可测。
 /// </summary>
 [Collection("adapter-registry")]
 public class VisionEngineFactoryTests
 {
     private static string? NoRuntime() => null;
-    private static string? RuntimePresent() => @"C:\fake\MVTec\HALCON-24.11\bin\x64-win64\halcondotnet.dll";
+    // OpenCvSharp needs no path hunting: "present" just means the native runtime
+    // described itself. Stub a version string rather than a filesystem location.
+    // OpenCvSharp 无需探测路径："存在"即原生运行时能自我描述，故用版本串代替文件路径。
+    private static string? RuntimePresent() => "OpenCV 4.13.0";
 
-    private static void ResetRegistry() => HalconAdapterRegistry.Unregister();
+    private static void ResetRegistry() => VisionProviderRegistry.Unregister();
 
     [Fact]
     public void ForcePhantom_ReturnsPhantom_WithForcedReason()
@@ -41,7 +44,7 @@ public class VisionEngineFactoryTests
 
         Assert.IsType<PhantomVisionEngine>(engine);
         Assert.True(resolution.IsFallback);
-        Assert.Equal("no-halcon-runtime", resolution.Reason);
+        Assert.Equal("no-provider-runtime", resolution.Reason);
     }
 
     [Fact]
@@ -55,23 +58,23 @@ public class VisionEngineFactoryTests
         Assert.IsType<PhantomVisionEngine>(engine);
         Assert.True(resolution.IsFallback);
         Assert.Equal("phantom", resolution.Id);
-        Assert.Equal("halcon-unwired", resolution.Reason);
+        Assert.Equal("provider-unwired", resolution.Reason);
         Assert.Null(resolution.Detail);
     }
 
     [Fact]
-    public void RuntimePresent_AdapterRegistered_ReturnsHalconEngine()
+    public void RuntimePresent_ProviderRegistered_ReturnsRealEngine()
     {
         ResetRegistry();
-        HalconAdapterRegistry.Register(() => new FakeHalconAdapter { Provider = "halcondotnet" });
+        VisionProviderRegistry.Register(() => new FakeVisionProvider { Provider = "OpenCvSharp" });
         try
         {
             var engine = VisionEngineFactory.CreateResolvedCore(forcePhantom: false, RuntimePresent, out var resolution);
 
-            Assert.IsType<HalconVisionEngine>(engine);
+            Assert.IsType<OpenCvVisionEngine>(engine);
             Assert.False(resolution.IsFallback);
-            Assert.Equal("halcondotnet", resolution.Id);
-            Assert.Equal("halcon-adapter", resolution.Reason);
+            Assert.Equal("OpenCvSharp", resolution.Id);
+            Assert.Equal("provider-active", resolution.Reason);
         }
         finally
         {
@@ -83,14 +86,14 @@ public class VisionEngineFactoryTests
     public void AdapterFactoryThrows_FallsBackToPhantom_WithDetail()
     {
         ResetRegistry();
-        HalconAdapterRegistry.Register(() => throw new InvalidOperationException("halcondotnet bind boom"));
+        VisionProviderRegistry.Register(() => throw new InvalidOperationException("OpenCvSharp bind boom"));
         try
         {
             var engine = VisionEngineFactory.CreateResolvedCore(forcePhantom: false, RuntimePresent, out var resolution);
 
             Assert.IsType<PhantomVisionEngine>(engine);
             Assert.True(resolution.IsFallback);
-            Assert.Equal("halcon-adapter-failed", resolution.Reason);
+            Assert.Equal("provider-failed", resolution.Reason);
             Assert.Contains("boom", resolution.Detail);
         }
         finally
@@ -103,7 +106,7 @@ public class VisionEngineFactoryTests
     public void ForcePhantom_IgnoresRegisteredAdapter()
     {
         ResetRegistry();
-        HalconAdapterRegistry.Register(() => new FakeHalconAdapter { Provider = "halcondotnet" });
+        VisionProviderRegistry.Register(() => new FakeVisionProvider { Provider = "OpenCvSharp" });
         try
         {
             var engine = VisionEngineFactory.CreateResolvedCore(forcePhantom: true, RuntimePresent, out var resolution);
@@ -118,15 +121,15 @@ public class VisionEngineFactoryTests
     }
 
     [Fact]
-    public async Task ResolvedHalconEngine_RoutesOpsThroughRegisteredAdapter()
+    public async Task ResolvedRealEngine_RoutesOpsThroughRegisteredProvider()
     {
         ResetRegistry();
-        var fake = new FakeHalconAdapter { Provider = "halcondotnet" };
-        HalconAdapterRegistry.Register(() => fake);
+        var fake = new FakeVisionProvider { Provider = "OpenCvSharp" };
+        VisionProviderRegistry.Register(() => fake);
         try
         {
             var engine = VisionEngineFactory.CreateResolvedCore(forcePhantom: false, RuntimePresent, out _);
-            var input = new VisionFrame(2, 2, PixFormat.Gray8, new byte[4], FrameDomain.Halcon);
+            var input = new VisionFrame(2, 2, PixFormat.Gray8, new byte[4], FrameDomain.Synthetic);
             var args = new Dictionary<string, object> { ["min"] = 10 };
 
             Assert.True(engine.Supports("threshold"));
@@ -149,14 +152,14 @@ public class VisionEngineFactoryTests
     public void Unregister_ThenResolveAgain_FallsBackToPhantom()
     {
         ResetRegistry();
-        HalconAdapterRegistry.Register(() => new FakeHalconAdapter());
-        Assert.True(HalconAdapterRegistry.IsRegistered);
+        VisionProviderRegistry.Register(() => new FakeVisionProvider());
+        Assert.True(VisionProviderRegistry.IsRegistered);
 
-        HalconAdapterRegistry.Unregister();
+        VisionProviderRegistry.Unregister();
         var engine = VisionEngineFactory.CreateResolvedCore(forcePhantom: false, RuntimePresent, out var resolution);
 
         Assert.IsType<PhantomVisionEngine>(engine);
-        Assert.Equal("halcon-unwired", resolution.Reason);
-        Assert.False(HalconAdapterRegistry.IsRegistered);
+        Assert.Equal("provider-unwired", resolution.Reason);
+        Assert.False(VisionProviderRegistry.IsRegistered);
     }
 }

@@ -4,13 +4,13 @@ namespace HalconWorkflow.Nodes.Vision.Adapters;
 
 /// <summary>
 /// Deployment-time bridge between this library and a licensed machine-vision SDK
-/// (§6.3 "software fallback"). The whole MVTec halcondotnet translation lives in a
+/// (§6.3 "software fallback"). The whole MVTec OpenCvSharp translation lives in a
 /// concrete adapter — never in the engine proxy, so this library stays buildable and
-/// testable without any Halcon installation. Shapes are OUR types (<see cref="VisionFrame"/>,
+/// testable without any OpenCV installation. Shapes are OUR types (<see cref="VisionFrame"/>,
 /// stringly-typed args, <see cref="Dictionary{TKey,TValue}"/> results), identical to the
 /// phantom engine's registry, so a dropped-in adapter swaps behaviour transparently.
-/// / 本库与「已授权机器视觉 SDK」之间的部署期桥（§6.3 软回退）。MVTec halcondotnet 的
-///   全部翻译驻留在具体适配器内，绝不属于代理引擎——因此本库无 Halcon 安装也能编译与测试。
+/// / 本库与「已授权机器视觉 SDK」之间的部署期桥（§6.3 软回退）。MVTec OpenCvSharp 的
+///   全部翻译驻留在具体适配器内，绝不属于代理引擎——因此本库无 OpenCV 安装也能编译与测试。
 ///   出入参一律用本库类型（VisionFrame、string 键参数、Dictionary 结果），与幻影引擎注册表
 ///   完全一致：部署时撘入适配器即无缝切换真实行为。
 /// </summary>
@@ -21,11 +21,11 @@ namespace HalconWorkflow.Nodes.Vision.Adapters;
 /// / 实例非线程安全：同一时刻仅一个执行线程使用（池租约契约，与 IVisionEngine 相同）。
 ///   失败以 ExecuteAsync 抛异常上报;取消为协作式。
 /// </remarks>
-public interface IHalconAdapter : IDisposable
+public interface IVisionProvider : IDisposable
 {
     /// <summary>
-    /// Engine/module id reported on the engine (<see cref="IVisionEngine.Id"/>), e.g. "halcondotnet".
-    /// / 引擎/模块标识（经引擎 Id 上报），如 "halcondotnet" 
+    /// Engine/module id reported on the engine (<see cref="IVisionEngine.Id"/>), e.g. "OpenCvSharp".
+    /// / 引擎/模块标识（经引擎 Id 上报），如 "OpenCvSharp" 
     /// </summary>
     string Provider { get; }
 

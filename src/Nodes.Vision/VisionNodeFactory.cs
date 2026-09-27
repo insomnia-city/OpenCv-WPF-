@@ -19,7 +19,6 @@ public sealed class VisionNodeFactory : INodeFactory
         { Namespace: "vision.grab" } => new GrabNode(id),
         { Namespace: "vision.threshold" } when contract.Version >= 2 => new ThresholdNode(id),
         { Namespace: "vision.measure" } => new MeasureNode(id),
-        { Namespace: "vision.hdev" } => new HdevNode(id),
         { Namespace: "vision.tomat" } => new ToMatNode(id),
         { Namespace: "vision.tohobject" } => new ToHObjectNode(id),
         _ => null,

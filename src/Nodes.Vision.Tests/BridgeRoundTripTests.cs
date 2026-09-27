@@ -4,9 +4,9 @@ using Xunit;
 namespace HalconWorkflow.Nodes.Vision.Tests;
 
 /// <summary>
-/// Stage-5 gate 2: HObject↔Mat bridge must round-trip byte-identical (§6.4). Bytes
+/// Stage-5 gate 2: Synthetic frame↔Mat bridge must round-trip byte-identical (§6.4). Bytes
 /// provenience flips only; pixels and dimensions must survive exactly.
-/// / 阶段 5 闸门 2：HObject↔Mat 桥须字节往返一致（§6.4）。仅来源域翻转;像素与尺寸必须精确保持。
+/// / 阶段 5 闸门 2：Synthetic frame↔Mat 桥须字节往返一致（§6.4）。仅来源域翻转;像素与尺寸必须精确保持。
 /// </summary>
 public class BridgeRoundTripTests
 {
@@ -25,7 +25,7 @@ public class BridgeRoundTripTests
     [InlineData(PixFormat.Bgra8, 50, 30)]
     public void RoundTrip_IsByteIdentical_ForEveryFormat(PixFormat format, int w, int h)
     {
-        var source = new VisionFrame(w, h, format, Bytes(w * h * (int)format), FrameDomain.Halcon);
+        var source = new VisionFrame(w, h, format, Bytes(w * h * (int)format), FrameDomain.Synthetic);
 
         var mat = FrameBridge.ToMat(source);
         Assert.Equal(FrameDomain.Mat, mat.Domain);
@@ -34,7 +34,7 @@ public class BridgeRoundTripTests
         Assert.Equal(h, mat.Height);
 
         var back = FrameBridge.ToHObject(mat);
-        Assert.Equal(FrameDomain.Halcon, back.Domain);
+        Assert.Equal(FrameDomain.Synthetic, back.Domain);
         Assert.True(source.ContentEquals(back)); // byte-identical round trip / 字节一致往返
     }
 
@@ -48,7 +48,7 @@ public class BridgeRoundTripTests
     [Fact]
     public void ToHObject_RejectsNonMatFrame()
     {
-        var frame = new VisionFrame(4, 4, PixFormat.Gray8, Bytes(16), FrameDomain.Halcon);
+        var frame = new VisionFrame(4, 4, PixFormat.Gray8, Bytes(16), FrameDomain.Synthetic);
         Assert.Throws<InvalidOperationException>(() => FrameBridge.ToHObject(frame));
     }
 

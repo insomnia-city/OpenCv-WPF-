@@ -124,7 +124,10 @@ public class ShellViewModelTests : IDisposable
     public void Palette_VisionEntriesAreReadyToSpawn()
     {
         var shell = CreateShell();
-        Assert.Equal(26, shell.Palette.Count); // + palette.tagTrigger (stage-20) · 含 stage-20 的 tagTrigger 项
+        // 26 minus the dropped vision.hdev entry (no OpenCV equivalent of HDevEngine).
+        // 26 减去已下线的 vision.hdev 项（OpenCV 无 HDevEngine 对应物）。
+        Assert.Equal(25, shell.Palette.Count);
+        Assert.DoesNotContain(shell.Palette, p => p.Key == "hdev");
         var grab = shell.Palette.First(p => p.Key == "grabber");
         Assert.Equal("vision.grab:1", grab.Contract);
         shell.AddNodeCommand.Execute(grab);

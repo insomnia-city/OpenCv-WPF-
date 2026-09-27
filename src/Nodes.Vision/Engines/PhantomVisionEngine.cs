@@ -3,10 +3,10 @@ using HalconWorkflow.Nodes.Vision.Imaging;
 namespace HalconWorkflow.Nodes.Vision.Engines;
 
 /// <summary>
-/// Pure-.NET Halcon substitute used when no licensed Halcon runtime is installed
+/// Pure-.NET substitute used when no OpenCV native runtime is available
 /// (§6.3 software fallback). Deterministic, thread-unaware (single executor per
 /// instance by pool contract). Op names mirror the future real-engine registry.
-/// / 纯 .NET 的 Halcon 软件替代：当本机无授权的 Halcon 运行时启用（§6.3 软回退）。
+/// / 纯 .NET 的 OpenCV 软件替代：当本机无授权的 OpenCV 运行时启用（§6.3 软回退）。
 ///   确定性输出;操作名与将来真实引擎注册表一一对应。
 /// </summary>
 public sealed class PhantomVisionEngine : IVisionEngine
@@ -20,7 +20,7 @@ public sealed class PhantomVisionEngine : IVisionEngine
         _rng = new Random(seed ?? 20240513);
     }
 
-    public bool Supports(string op) => op is "grab" or "threshold" or "measure" or "hdev";
+    public bool Supports(string op) => op is "grab" or "threshold" or "measure";
 
     public Task<object> ExecuteAsync(string op, VisionFrame? input,
         IReadOnlyDictionary<string, object>? args, CancellationToken ct)
@@ -31,7 +31,6 @@ public sealed class PhantomVisionEngine : IVisionEngine
             "grab" => Task.FromResult<object>(Grab(args)),
             "threshold" => Task.FromResult<object>(Threshold(input, args)),
             "measure" => Task.FromResult<object>(Measure(input)),
-            "hdev" => Task.FromResult<object>(Hdev(input, args)),
             _ => throw new NotSupportedException($"phantom engine does not support op '{op}'"),
         };
     }
@@ -51,7 +50,7 @@ public sealed class PhantomVisionEngine : IVisionEngine
                 bits[row + x] = (byte)Math.Clamp(v, 0, 255);
             }
         }
-        return new VisionFrame(w, h, PixFormat.Gray8, bits, FrameDomain.Halcon);
+        return new VisionFrame(w, h, PixFormat.Gray8, bits, FrameDomain.Synthetic);
     }
 
     /// <summary>Binary mask from grayscale thresholds. / 灰度阈值二值化掩膜</summary>
@@ -64,7 +63,7 @@ public sealed class PhantomVisionEngine : IVisionEngine
         var bits = new byte[input.Bits.Length];
         for (int i = 0; i < bits.Length; i++)
             bits[i] = input.Bits[i] >= min && input.Bits[i] <= max ? (byte)255 : (byte)0;
-        return new VisionFrame(input.Width, input.Height, PixFormat.Gray8, bits, FrameDomain.Halcon);
+        return new VisionFrame(input.Width, input.Height, PixFormat.Gray8, bits, FrameDomain.Synthetic);
     }
 
     /// <summary>Rising-edge span along the middle row → measurement result. / 中间行上升沿跨度 → 测量结果</summary>
@@ -91,24 +90,6 @@ public sealed class PhantomVisionEngine : IVisionEngine
             ["Distance"] = first >= 0 ? last - first : 0,
             ["Edges"] = edges,
         };
-    }
-
-    /// <summary>Generic .hdev procedure in fallback mode via a small registry. / 软回退模式下 .hdev 通用脚本</summary>
-    private static VisionFrame Hdev(VisionFrame? input, IReadOnlyDictionary<string, object>? args)
-    {
-        string proc = GetString(args, "procedure", "simulate_probe");
-        return proc switch
-        {
-            "simulate_probe" => ProbeGradient(input?.Width ?? 160, input?.Height ?? 120),
-            _ => throw new NotSupportedException($"fallback registry has no procedure '{proc}'"),
-        };
-    }
-
-    private static VisionFrame ProbeGradient(int w, int h)
-    {
-        var bits = new byte[w * h];
-        for (int i = 0; i < bits.Length; i++) bits[i] = (byte)(i * 255 / bits.Length);
-        return new VisionFrame(w, h, PixFormat.Gray8, bits, FrameDomain.Halcon);
     }
 
     private static int GetInt(IReadOnlyDictionary<string, object>? args, string key, int fallback)
