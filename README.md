@@ -31,8 +31,8 @@
 ```
 /src
   Core/            # 图引擎内核：Node/Port/Graph/Scheduler/Serialization（零依赖）
-  Nodes.Vision/    # Halcon 节点库（插件）─ halcondotnet.dll 算子直调为主，HDevEngine 仅做通用脚本节点；含 HObject↔Mat 桥节点（§6.4）
-  Nodes.OpenCV/    # OpenCV 节点库（插件）─ OpenCvSharp4（`OpenCvEnginePool`）+ HObject↔Mat 桥 + Onnx/DNN 推理（§6.4）
+  Nodes.Vision/    # 视觉节点库（插件）─ **OpenCvSharp4 4.13 生产后端**（grab/threshold/measure）+ Synthetic↔Mat 桥节点（§6.4）；hdev 已下线（阶段 26）
+  Nodes.OpenCV/    # 【未创建】原规划的独立 OpenCV 节点库（阶段 27）；当前视觉算子仍位于 Nodes.Vision
   Nodes.Comm/      # 通讯节点库（插件）
   Nodes.Motion/    # 运动控制节点库（插件）
   Nodes.Data/      # 数据库节点库（插件）
@@ -330,7 +330,7 @@
 - **决策依据（实测）** — 本机 HALCON 12.0 仅 x86（`D:\Program Files\MVTec\HALCON-12.0`），托管程序集可加载但任何原生调用抛 `System.BadImageFormatException`（HRESULT `0x8007000B`），且无 x64 授权；无 x64 HALCON 运行时即无法交付，故按实际代码原则弃用 HALCON，改用 Apache-2.0 的 OpenCvSharp4。已用独立 x64 `net9.0` 探针实测通过：原生加载 OK、`Cv2.GetVersionString()` = 4.13.0、阈值分割 PASS
 - 真实提供器 — `OpenCvVisionProvider`（Nodes.Vision/Adapters）实现 `grab`（`VideoCapture` 真实取像，设备不可用**抛错而非伪造图像**）、`threshold`、 `measure`（连通域统计）；`threshold` 用 `Cv2.InRange` 实现**双侧闭窗口** `min ≤ 灰度 ≤ max`（`ThresholdTypes.Binary` 只与 `thresh` 比较、会静默忽略 `max`，故不可用），`measure` 以 `thresh = level-1` 对齐幻影引擎的 `≥` 闭区间分割
 - 命名泛化 — `IHalconAdapter`→`IVisionProvider`、`HalconAdapterRegistry`→`VisionProviderRegistry`、`HalconVisionEngine`→`OpenCvVisionEngine`、`FakeHalconAdapter`→`FakeVisionProvider`、`FrameDomain.Halcon`/`AsHalcon()`→`FrameDomain.Synthetic`/`AsSynthetic()`；删除 `HalconDotNetAdapter`（x86-only）与仅存于 `D:\Program Files\MVTec\...` 的路径探测
-- **下线 `hdev`** — OpenCV 无 `HDevEngine` 对应物，故整条链移除：`HdevParameters`/`HdevNode`、`VisionNodeFactory` 注册、壳层调色板项（26→25）、配色资源、三语 `palette.hdev` 文案与对应测试
+- **下线 `hdev`** — OpenCV 无 `HDevEngine` 对应物，故整条链移除：`HdevParameters`/`HdevNode`、`VisionNodeFactory` 注册、壳层调色板项（26→25）、配色资源、三语 `palette.hdev` 文案与对应测试。**无迁移负担**：不存在历史/存量图文件（未交付过含 `vision.hdev` 的生产图），且代码侧未留任何 hdev 迁移或兜底逻辑，无死代码
 - 生产接线 — `App.OnStartup` 在 `OpenCvProbe` 确认原生可用时显式注册 `OpenCvVisionProvider`（保留「真实引擎必须显式注册」的工厂策略），不可用则记警告并回退 `PhantomVisionEngine`；`RuntimeCapabilities` 能力面板改报 OpenCV 运行时 + 提供器注册态
 - 新增闸门（**真跑 x64 原生，无 mock**）— `Nodes.Vision.Tests/OpenCvVisionProviderTests.cs` **9 项**：原生运行时可加载、提供器声明 op/拒绝 `hdev`、双侧阈值闭区间边界、窄 `max` 裁剪回归、非灰度输入拒绝、`measure` 单/双连通域与幻影一致、无设备 `grab` 必抛、未知算子拒绝
 - 顺带修复既有竞态 — `LogViewModel.Add` 此前无锁，调度线程追加日志行会让 `TriggerIntegrationTests` 枚举抛 `Collection was modified`（偶发红）；改为锁内追加 + 新增 `Snapshot()` 供非 UI 线程读取，**App.Tests 连续 5 轮零失败**

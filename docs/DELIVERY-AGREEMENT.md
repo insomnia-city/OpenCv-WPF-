@@ -40,8 +40,10 @@ HALCON 路线**已终止**，不是待办项：
 - 结论：改用 **OpenCvSharp4 4.13.0.20260627**（Apache-2.0），已用独立 x64 `net9.0`
   探针实测：原生加载 OK，`Cv2.GetVersionString()` = 4.13.0。
 
-`hdev` 算子**已下线**并从产品中移除（OpenCV 无 `HDevEngine` 对应物）。历史图若含
-`vision.hdev` 节点，加载时按未知契约处理，需人工改接 `vision.threshold` / `vision.measure`。
+`hdev` 算子**已下线**并从产品中移除（OpenCV 无 `HDevEngine` 对应物）。经确认**不存在任何
+历史/存量图文件**（未交付过含 `vision.hdev` 节点的生产图），故此为**无迁移负担的干净断代**：
+不存在需要改接 `vision.threshold` / `vision.measure` 的既有图。代码侧亦未保留任何 hdev 迁移或
+兜底逻辑，不产生死代码。
 
 ---
 
@@ -124,7 +126,8 @@ dotnet test  HalconWorkflow.sln --nologo
 
 ## 6. 双方待确认事项
 
-1. 是否接受 **OpenCV 替代 HALCON**（含 `hdev` 算子下线）作为最终视觉后端。
+1. 是否接受 **OpenCV 替代 HALCON** 作为最终视觉后端。附注：`hdev` 算子随之下线，
+   因不存在历史图，此为**无迁移负担的干净断代**（详见 §1.2），不产生额外改造成本。
 2. 阶段 25 诊断视图、阶段 27 `Nodes.OpenCV` 是否纳入后续范围。
 3. 相机 / 运动卡 / PLC 现场验收的时间窗与责任方。
 4. 仿真演示件：继续暂缓，还是补一个可人工操作的仿真 demo。
