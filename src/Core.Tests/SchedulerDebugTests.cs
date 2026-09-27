@@ -37,10 +37,16 @@ public class SchedulerDebugTests
         Assert.Equal(SchedulerState.Paused, scheduler.State);
         Assert.Equal("threshold", scheduler.PausedNodeId);
 
-        scheduler.Continue();
+        // Subscribe before releasing the gate. Continue() lets the remaining nodes run, and the
+        // scheduler can raise RunCompleted before the next statement executes; subscribing
+        // afterwards loses the one-shot signal and the wait below then times out. Observed under
+        // CPU load as a TaskCanceledException from runDone. · 先订阅再释放闸门：Continue() 会让
+        // 剩余节点跑完，RunCompleted 可能在下一条语句前就触发，之后再订阅会丢失一次性信号并导致
+        // 等待超时（高负载下表现为 runDone 抛 TaskCanceledException）。
         using var runDone = new CancellationTokenSource(10000);
         var runTcs = new TaskCompletionSource<GraphRunResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         scheduler.RunCompleted += r => runTcs.TrySetResult(r);
+        scheduler.Continue();
         var result = await runTcs.Task.WaitAsync(runDone.Token);
         Assert.True(result.Success);
         Assert.Contains("threshold", completed);
@@ -101,10 +107,11 @@ public class SchedulerDebugTests
         Assert.Contains("threshold", completed);
         Assert.DoesNotContain("result", completed);
 
-        scheduler.Continue();
+        // Subscribe before Continue() — see the note in Breakpoint_HaltsBeforeNode_...
         using var done = new CancellationTokenSource(5000);
         var runTcs = new TaskCompletionSource<GraphRunResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         scheduler.RunCompleted += r => runTcs.TrySetResult(r);
+        scheduler.Continue();
         await runTcs.Task.WaitAsync(done.Token);
         Assert.Contains("result", completed);
     }
@@ -147,11 +154,12 @@ public class SchedulerDebugTests
 
         Assert.NotNull(await paused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(SchedulerState.Paused, scheduler.State);
-        scheduler.Continue();
-
+        // Subscribe before Continue() — see the note in Breakpoint_HaltsBeforeNode_...
         using var done = new CancellationTokenSource(5000);
         var runTcs = new TaskCompletionSource<GraphRunResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         scheduler.RunCompleted += r => runTcs.TrySetResult(r);
+        scheduler.Continue();
+
         var result = await runTcs.Task.WaitAsync(done.Token);
         Assert.True(result.Success);
         Assert.Equal(3, result.SucceededNodes);
