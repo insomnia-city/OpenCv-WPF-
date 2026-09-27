@@ -112,11 +112,16 @@ dotnet test  HalconWorkflow.sln --nologo
   | Dapper | 2.1.35 | Apache-2.0 |
   | Microsoft.Data.Sqlite | 9.0.0 | MIT |
 
-- OpenCV 本体自 4.x 起为 Apache-2.0。⚠ 实测：`OpenCvSharp4.runtime.win` 包目录内
-  **不含任何 LICENSE/NOTICE 文件**，Apache-2.0 §4 要求的「随附许可副本 / 保留 NOTICE」
-  **不由 NuGet 自动满足**，须在制作发布包时显式附上（§7 事项 2）。
-- **待补（§7 事项 4）**：`LICENSE` 内容待版权所有方选定；`THIRD-PARTY-NOTICES.md` 已建，
-  11 项依赖许可已按本机 NuGet `.nuspec` 实际元数据逐条核验。
+- **OpenCV 许可版本边界**：4.5.0 起为 **Apache-2.0**；4.4.0 及更早（含 3.x/2.x/1.x）为
+  **3-clause BSD**。本产品分发 OpenCV **4.13** → 适用 **Apache-2.0**，**非 BSD**。
+  OpenCV 仓库不提供 `NOTICE` 文件，故 §4(d) 对其不适用；§4(a) 的许可副本已随仓库附带于
+  `third-party/`。
+- **FFmpeg 为 LGPL-2.1-or-later，非 GPL-2.0**（OpenCV 官方说明其 Windows 预编译版本
+  已排除 GPL 组件），**无 GPL 传染**。分发路径须二选一，详见 `third-party/ffmpeg/NOTICE.md`。
+- `OpenCvSharp4.runtime.win` NuGet 包内**无任何许可文件**（实测），
+  Apache-2.0 §4(a)/(c) 须由 `third-party/opencvsharp/` 在发布包中显式满足（§7 事项 2）。
+- **待补（§7 事项 4）**：`LICENSE` 内容待版权所有方选定；`THIRD-PARTY-NOTICES.md` 与
+  `third-party/` 许可正文目录已建，11 项依赖许可已按本机 NuGet `.nuspec` 实际元数据逐条核验。
 
 ---
 
@@ -153,8 +158,9 @@ dotnet test  HalconWorkflow.sln --nologo
 | 1 | CI/CD 流水线 | 待办 | 建议 GitHub Actions：build + test，Windows runner（视觉原生为 win-x64） |
 | 2 | 安装包 / 部署脚本 | 待办 | 需产出可分发目录或安装包 + 部署说明；须一并附 OpenCvSharp/OpenCV 的许可与 NOTICE（见 §4） |
 | 3 | 运维文档 | 待办 | 安装手册、故障排查、参数备份/恢复 |
-| 4 | 版本治理基建 | **部分完成** | 已建 `global.json`（锁 SDK 9.0.317 + `rollForward: latestFeature`）、`CHANGELOG.md`、`SECURITY.md`、`THIRD-PARTY-NOTICES.md`（11 项依赖许可已按 NuGet `.nuspec` 实际元数据逐条核验）。**未完成**：`LICENSE` 内容待版权所有方选定（现为明确占位，标注「保留所有权利」，不得对外分发）、发布 tag 策略 |
+| 4 | 版本治理基建 | **部分完成** | 已建 `global.json`（锁 SDK 9.0.317 + `rollForward: latestFeature`）、`CHANGELOG.md`、`SECURITY.md`、`THIRD-PARTY-NOTICES.md`（11 项依赖许可已按 NuGet `.nuspec` 实际元数据逐条核验）、`third-party/` 许可正文目录（OpenCV/OpenCvSharp 的 Apache-2.0 全文、OpenCV `COPYRIGHT`、许可变更说明、FFmpeg LGPL 声明）。**未完成**：`LICENSE` 内容待版权所有方选定（现为明确占位，标注「保留所有权利」，不得对外分发）、发布 tag 策略 |
 | 5 | 人工可操作仿真演示件 | 待办 | 不依赖硬件；跑通 grab→threshold→measure→存图 |
-| 6 | ⚠ FFmpeg 许可核实（§4 新增） | 待办 | `opencv_videoio_ffmpeg4130_64.dll` 静态链接 FFmpeg，实际许可（LGPL-2.1 / GPL-2.0）**未经核实**；若为 GPL-2.0 可能约束分发方式。核实前不得声称许可合规 |
+| 6 | ~~FFmpeg 许可核实~~ | **已关闭** | OpenCV 官方 `3rdparty/ffmpeg/readme.txt` 明确 Windows 预编译 ffmpeg「without GPL components」且为 **LGPL-2.1-or-later，非 GPL-2.0** → 无 GPL 传染。分发路径二选一（见 `third-party/ffmpeg/NOTICE.md`），建议方案 B 排除该 DLL 以规避 LGPL 义务 |
+| 7 | 第三方许可正文入包 | 待办 | 随包分发 FFmpeg 时须附 `COPYING.LGPLv2.1` 全文 + 源码/书面要约 + 允许替换（§7 事项 2 一并处理） |
 
 **验收口径不变**：以上任一项未完成，均不得声称「可正式交付」。

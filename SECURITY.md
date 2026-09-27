@@ -39,6 +39,9 @@ P0 级问题（可远程触发且导致数据损坏或代码执行）按 **4h** 
 
 ## 供应链
 
-- 运行时第三方依赖与许可见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
-- ⚠ 随包分发的 `opencv_videoio_ffmpeg4130_64.dll` 静态链接 FFmpeg，其实际许可
-  （LGPL-2.1 或 GPL-2.0）**尚未核实**，见该文件「未决项」说明。
+- 运行时第三方依赖与许可见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)，
+  许可正文见 [`third-party/`](third-party/)。
+- OpenCV 4.13 适用 **Apache-2.0**（4.5.0 起由 BSD 切换）；随包的
+  `opencv_videoio_ffmpeg4130_64.dll` 为 **LGPL-2.1-or-later（非 GPL）**。
+  分发时须在「随包附 LGPL 全文与源码要约」与「排除该 DLL」之间择一，
+  详见 [`third-party/ffmpeg/NOTICE.md`](third-party/ffmpeg/NOTICE.md)。
