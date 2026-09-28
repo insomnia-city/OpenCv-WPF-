@@ -104,9 +104,16 @@ $saved = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 $actualSdk = (& dotnet --version 2>&1 | Out-String).Trim()
 $ErrorActionPreference = $saved
-# rollForward=latestFeature may land on a higher feature band, so compare the prefix.
-if ($actualSdk.StartsWith($expectedSdk)) {
-    Add-Step 'sdk' $true ("expected " + $expectedSdk + ", resolved " + $actualSdk)
+# rollForward=latestFeature means the resolved SDK may be a higher patch on the same
+# feature band than the pinned version. The gate's job is to prove resolution honoured
+# global.json, which is: same major, and at least the pinned version. A prefix match was
+# wrong - it failed a legitimate forward roll from 9.0.317 to 9.0.318, which is exactly
+# what rollForward allows. Compare as versions instead, while refusing a different major
+# (a 10.x would roll past the pin's band entirely, which latestFeature does not allow).
+$expectedOk = $true
+try { $ev = [System.Version]::Parse($expectedSdk); $av = [System.Version]::Parse($actualSdk) } catch { $expectedOk = $false }
+if ($expectedOk -and $av.Major -eq $ev.Major -and $av -ge $ev) {
+    Add-Step 'sdk' $true ("expected " + $expectedSdk + " (rollForward latestFeature), resolved " + $actualSdk)
 } else {
     Add-Step 'sdk' $false ("expected " + $expectedSdk + ", resolved " + $actualSdk)
 }

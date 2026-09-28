@@ -8,6 +8,34 @@
 
 ---
 
+## 首次托管 CI（2026-09-28）
+
+### 修复（重连状态机的跨锁不一致观测）
+
+`ModbusTcpConnection` / `S7TcpConnection` 的恢复（reconnect）路径原先用**两把锁**
+（`_recoveryGate` 管 `_recovering`，`_stateGate` 管 `_state`）**分别发布**状态：
+
+- 传输故障后用 `Disconnected → Reconnecting` 两步过渡，暴露一个窗口——`IsRecovering`
+  已为 `true` 而 `State` 仍为 `Disconnected`；
+- 放弃/愈合同样跨锁清除标志与状态，观察者可能读到 `State==Disconnected`（或
+  `Connected`）而 `IsRecovering` 尚未同步。
+
+这在 8 核本地机上从未暴露（窗口极短），但在 GitHub `windows-2022` 托管 runner
+（2 vCPU）上被放大，三处重连/恢复测试间歇失败。现已改为**进入恢复、愈合、放弃都
+在单把锁内原子发布** `IsRecovering` 与 `State`，并直接落地 `Reconnecting`（不再经
+`Disconnected` 过渡）；`IsRecovering` getter 也从裸读改为锁保护。
+
+### 修复（门禁 SDK 断言与产物上传路径）
+
+- 门禁第 1 项原用 `StartsWith(global.json 版本)` 判断——`rollForward: latestFeature`
+  允许解析到同特性带的更高 patch（runner 上 `9.0.317 → 9.0.318`），前缀匹配误判失败。
+  改为解析为 `Version` 后做「同主版本且不低于 pin」的语义比较。
+- `.github/workflows/ci.yml` 的 `upload-artifact` 原先引用 `env.TEMP`——action 的
+  `env` 上下文没有该变量，路径解析为空而找不到任何文件，失败 run 的 TRX 拿不到。
+  改为把门禁工作目录显式钉到 `${{ runner.temp }}`，上传与之对齐。
+
+---
+
 ## 分发包（2026-09-28）
 
 ### 新增
