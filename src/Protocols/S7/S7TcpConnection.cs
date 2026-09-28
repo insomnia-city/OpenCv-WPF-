@@ -61,7 +61,13 @@ public sealed class S7TcpConnection : IDeviceConnection
     private ConnectionState _state = ConnectionState.Disconnected;
 
     /// <summary>True while the background recovery loop owns connecting. · 后台恢复循环正在负责连接时为真</summary>
-    public bool IsRecovering => _recovering;
+    public bool IsRecovering
+    {
+        get
+        {
+            lock (_recoveryGate) return _recovering;
+        }
+    }
 
     /// <summary>Successful reconnects after a transport failure (heartbeat or I/O). · 传输故障后成功重连次数(心跳或 I/O)</summary>
     public long ReconnectCount => Interlocked.Read(ref _reconnectCount);
@@ -210,7 +216,15 @@ public sealed class S7TcpConnection : IDeviceConnection
             _stream = null;
             client = _client;
             _client = null;
-            if (_state == ConnectionState.Connected) _state = ConnectionState.Disconnected;
+            // A transport fault means the connection is dead and recovery (if enabled) is the
+            // only path forward. Jump straight to Reconnecting instead of staging through
+            // Disconnected: staging through Disconnected exposed a window where IsRecovering
+            // was already true but State was still Disconnected, and observers polling one
+            // predicate before asserting the other read an incoherent snapshot.
+            // · 传输故障意味着连接已死,恢复(若启用)是唯一出路。直接跳到 Reconnecting 而不要
+            // 先落到 Disconnected:先落 Disconnected 会暴露一个窗口(IsRecovering 已为 true 而
+            // State 仍是 Disconnected),观察者先轮询谓词再断言另一项时会读到不一致快照。
+            _state = ConnectionState.Reconnecting;
         }
         stream?.Dispose();
         client?.Dispose();
@@ -219,6 +233,13 @@ public sealed class S7TcpConnection : IDeviceConnection
         {
             if (_recovering) return;
             _recovering = true;
+            // Entering recovery is a single atomic transition: once IsRecovering is visible,
+            // State must already be Reconnecting. Publishing the two under separate locks let
+            // observers read a stale mix (IsRecovering=true + State=Disconnected) on a slow
+            // machine. Kept under the same lock as the flag so the state machine presents a
+            // coherent snapshot. · 进入恢复是单一原子迁移:IsRecovering 一旦可见,State 必须已是
+            // Reconnecting。若用两个锁分别发布,慢机器上观察者可能读到不一致混合状态。
+            StateWait(ConnectionState.Reconnecting);
         }
         _recoveryTask = Task.Run(RecoverLoopAsync);
     }
@@ -239,8 +260,14 @@ public sealed class S7TcpConnection : IDeviceConnection
                     await ConnectCoreAsync(attemptCts.Token).ConfigureAwait(false);
                     Interlocked.Increment(ref _reconnectCount);
                     LastError = null;
-                    lock (_recoveryGate) _recovering = false;
-                    StateWait(ConnectionState.Connected);
+                    // Heal is the end of recovery: clear IsRecovering and State together so an
+                    // observer never sees State==Connected while the flag is still set.
+                    // · 愈合即恢复结束:IsRecovering 与 State 一并清除,避免观察者看到 State==Connected 时标志仍置位。
+                    lock (_recoveryGate)
+                    {
+                        _recovering = false;
+                        StateWait(ConnectionState.Connected);
+                    }
                     return;
                 }
                 catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
@@ -255,8 +282,15 @@ public sealed class S7TcpConnection : IDeviceConnection
                 attempt++;
                 if (_reconnect.MaxAttempts > 0 && attempt >= _reconnect.MaxAttempts)
                 {
-                    lock (_recoveryGate) _recovering = false;
-                    StateWait(ConnectionState.Disconnected);
+                    // Give-up is the end of recovery: IsRecovering and State must clear
+                    // together so an observer never sees State==Disconnected while the flag
+                    // is still set. · 放弃即恢复结束:IsRecovering 与 State 必须一并清除,否则观察者
+                    // 可能在标志仍置位时看到 State==Disconnected。
+                    lock (_recoveryGate)
+                    {
+                        _recovering = false;
+                        StateWait(ConnectionState.Disconnected);
+                    }
                     return;
                 }
 

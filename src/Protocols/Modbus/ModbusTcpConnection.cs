@@ -59,7 +59,13 @@ public sealed class ModbusTcpConnection : IDeviceConnection
     private ConnectionState _state = ConnectionState.Disconnected;
 
     /// <summary>True while the background recovery loop owns connecting. · 后台恢复循环正在负责连接时为真</summary>
-    public bool IsRecovering => _recovering;
+    public bool IsRecovering
+    {
+        get
+        {
+            lock (_recoveryGate) return _recovering;
+        }
+    }
 
     /// <summary>Successful reconnects after a transport failure (heartbeat or I/O). · 传输故障后成功重连次数(心跳或 I/O)</summary>
     public long ReconnectCount => Interlocked.Read(ref _reconnectCount);
@@ -204,7 +210,14 @@ public sealed class ModbusTcpConnection : IDeviceConnection
             _stream = null;
             client = _client;
             _client = null;
-            if (_state == ConnectionState.Connected) _state = ConnectionState.Disconnected;
+            // Transport fault → the connection is dead; recovery (if enabled) is the only
+            // path forward. Go straight to Reconnecting rather than staging through
+            // Disconnected, which exposed a window where IsRecovering was already true but
+            // State still said Disconnected (observers polling one then asserting the other
+            // read an incoherent snapshot on slow hardware).
+            // · 传输故障→连接已死;恢复(若启用)是唯一出路。直接切 Reconnecting,避免先落
+            // Disconnected 暴露窗口(IsRecovering 已 true 而 State 仍是 Disconnected)。
+            _state = ConnectionState.Reconnecting;
         }
         stream?.Dispose();
         client?.Dispose();
@@ -233,8 +246,14 @@ public sealed class ModbusTcpConnection : IDeviceConnection
                     await ConnectCoreAsync(attemptCts.Token).ConfigureAwait(false);
                     Interlocked.Increment(ref _reconnectCount);
                     LastError = null;
-                    lock (_recoveryGate) _recovering = false;
-                    StateWait(ConnectionState.Connected);
+                    // Heal is the end of recovery: clear IsRecovering and State together so an
+                    // observer never sees State==Connected while the flag is still set.
+                    // · 愈合即恢复结束:IsRecovering 与 State 一并清除,避免观察者看到 State==Connected 时标志仍置位。
+                    lock (_recoveryGate)
+                    {
+                        _recovering = false;
+                        StateWait(ConnectionState.Connected);
+                    }
                     return;
                 }
                 catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested)
@@ -249,8 +268,14 @@ public sealed class ModbusTcpConnection : IDeviceConnection
                 attempt++;
                 if (_reconnect.MaxAttempts > 0 && attempt >= _reconnect.MaxAttempts)
                 {
-                    lock (_recoveryGate) _recovering = false;
-                    StateWait(ConnectionState.Disconnected);
+                    // Give-up is the end of recovery: clear IsRecovering and State together so
+                    // an observer never sees State==Disconnected while the flag is still set.
+                    // · 放弃即恢复结束:IsRecovering 与 State 一并清除,避免观察者看到 State==Disconnected 时标志仍置位。
+                    lock (_recoveryGate)
+                    {
+                        _recovering = false;
+                        StateWait(ConnectionState.Disconnected);
+                    }
                     return;
                 }
 
