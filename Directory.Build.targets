@@ -28,6 +28,14 @@
     官方明示可放心使用，无需 FFmpeg。
     本项目代码不使用 VideoWriter / Cv2.ImShow / highgui，故无其他影响。
 
+    曾出现的真实缺陷
+    仅删除 runtimes\win-x64\native\ 下的副本是不够的。带 RID 的自包含发布
+    (dotnet publish 指定 -r win-x64 与 self-contained) 会把原生库平铺到发布根目录，
+    旧模式匹配不到，opencv_videoio_ffmpeg4130_64.dll（27.3 MB）被静默打进交付包，
+    方案 B 形同虚设。故现同时排除 runtimes 布局与平铺布局两种。
+    tools/pack/package_release.ps1 与 CI 门禁的 ffmpeg 检查均按产物实际内容校验，
+    不依赖 MSBuild 模式是否命中。
+
     若日后需要视频文件回放：改用 MJPG，或回退到方案 A 并补齐 LGPL 全文、源码要约与
     允许替换的说明（届时须删除本文件并更新 third-party/ffmpeg/NOTICE.md）。
 
@@ -36,12 +44,20 @@
   -->
 
   <PropertyGroup>
+    <!--
+      Two layouts must both be covered. A framework-dependent publish/build keeps natives
+      under runtimes\win-x64\native\. A RID-specific publish (-r win-x64, which is what a
+      self-contained deliverable uses) instead lays them flat in the output root, so the
+      runtimes-only pattern silently misses them and ships the LGPL DLL.
+    -->
     <FfmpegRuntimePattern>runtimes\win-x64\native\opencv_videoio_ffmpeg*.dll</FfmpegRuntimePattern>
+    <FfmpegRuntimePatternFlat>opencv_videoio_ffmpeg*.dll</FfmpegRuntimePatternFlat>
   </PropertyGroup>
 
   <Target Name="RemoveFfmpegRuntimeFromOutput" AfterTargets="Build">
     <ItemGroup>
       <_FfmpegInOutput Include="$(OutDir)$(FfmpegRuntimePattern)" />
+      <_FfmpegInOutput Include="$(OutDir)$(FfmpegRuntimePatternFlat)" />
     </ItemGroup>
     <Delete Files="@(_FfmpegInOutput)" ContinueOnError="true" />
     <Message Importance="high" Text="[licensing] excluded FFmpeg runtime from build output (LGPL option B)" />
@@ -50,6 +66,7 @@
   <Target Name="RemoveFfmpegRuntimeFromPublish" AfterTargets="Publish" Condition="'$(PublishDir)' != ''">
     <ItemGroup>
       <_FfmpegInPublish Include="$(PublishDir)$(FfmpegRuntimePattern)" />
+      <_FfmpegInPublish Include="$(PublishDir)$(FfmpegRuntimePatternFlat)" />
     </ItemGroup>
     <Delete Files="@(_FfmpegInPublish)" ContinueOnError="true" />
     <Message Importance="high" Text="[licensing] excluded FFmpeg runtime from publish output (LGPL option B)" />

@@ -8,6 +8,59 @@
 
 ---
 
+## 分发包（2026-09-28）
+
+### 新增
+
+- `tools/pack/package_release.ps1` —— 产出免安装分发包。默认**自包含** win-x64
+  （目标机零前置），`-FrameworkDependent` 可出精简包。产出目录 + zip + 逐文件
+  `SHA256SUMS.txt` + `MANIFEST.txt` + zip 自身 `.sha256`。
+  版本标签默认为 `dev-<日期>-<短 sha>`，**刻意不用语义化版本**——项目尚无 `Version`
+  属性与 release tag（§7 事项 4 未决），此处宣称 1.0.0 等于替用户做了版本决策。
+- `docs/DEPLOYMENT.md` —— 前置条件、解压部署、目录结构、配置路径、备份、卸载、
+  许可合规说明（含方案 B 能力边界）、故障排查表。
+- CI 门禁新增**第 8 项 `package`**：按产物实际内容校验许可正文随包分发且方案 B 仍成立。
+
+### 修复（**方案 B 曾在一个真实场景下失效**）
+
+`Directory.Build.targets` 原先只删除 `runtimes\win-x64\native\opencv_videoio_ffmpeg*.dll`。
+但带 RID 的自包含发布（`dotnet publish -r win-x64 --self-contained`）会把原生库
+**平铺到发布根目录**，旧模式匹配不到——`opencv_videoio_ffmpeg4130_64.dll`
+（**27.3 MB**）被静默打进交付包，LGPL 的源码/要约/允许替换义务全部复活，方案 B 形同虚设。
+现已同时排除 `runtimes` 与平铺两种布局，包体相应从 233.4 MB 降到 206.2 MB。
+
+该缺陷是编写打包脚本时实测发现的，**不是靠读代码想出来的**。门禁第 7、8 项都改为
+按产物实际内容判断，而非信任 MSBuild 删除模式是否命中。
+
+### 修复（NU1701：WpfExtensions 放错了项目）
+
+`OpenCvSharp4.WpfExtensions` 仅提供 `net48` 与 `net8.0-windows7.0` 资产，只能被
+`net*-windows` 项目正确引用。原将其放入 `net9.0` 的 `Runtime` 项目，NuGet 回退到
+.NET Framework 资产并报 `NU1701`（在 .NET 9 应用中加载 net48 产物，运行时可能
+`TypeLoadException`）。已移至 `src/App`（`net9.0-windows`），NU1701 归零。
+相关放置约束已写入 `THIRD-PARTY-NOTICES.md`，防止再次放错。
+
+### 依赖台账
+
+新增 `OpenCvSharp4.Windows`（元包，0 二进制）、`OpenCvSharp4.WpfExtensions`（仅托管
+DLL）、传递依赖 `System.Drawing.Common` 10.0.9（MIT）。前两者许可 expression 为
+`Apache-2.0`，与既有 `third-party/opencvsharp/LICENSE` 同一份全文，故无需新增许可正文。
+四项均不引入原生库，方案 B 不受影响。
+
+### 实测结果
+
+- 门禁 **9/9 通过**，421/421 测试，Release 0 错误。
+- 分发包 445 文件 / 206.2 MB，zip 86.7 MB，单一顶层目录，7 项许可文件齐备。
+- **启动冒烟测试通过**：`HalconWorkflow.App.exe` 运行 12 s 稳定（工作集 134.6 MB），
+  进程内确认已加载 `OpenCvSharpExtern.DLL`，即运行时与 OpenCV 原生均正常。
+
+### 待办
+
+- 构建存在**既有**分析器警告（xUnit2012 ×12、xUnit1031 ×8、MVVMTK0039 ×4、
+  xUnit2009 ×2），集中在测试代码与 ViewModel，与本次改动无关，未在本轮处理。
+
+---
+
 ## CI 基建（2026-09-27）
 
 ### 新增
@@ -42,15 +95,17 @@
 
 交付协议 §7 承诺、尚未完成：
 
-- [ ] 安装包 / 部署脚本
-- [ ] 运维文档（安装手册、故障排查、参数备份恢复）
+- [ ] 运维文档（安装手册、故障排查、参数备份恢复）—— `docs/DEPLOYMENT.md` 已覆盖
+      部署/配置/备份/卸载/排查，待补的是长期运维（升级流程、日志归档、备份策略）
 - [ ] 发布 tag 策略（版本治理剩余项）
 - [ ] 人工可操作仿真演示件（不依赖硬件）
 
 已关闭：
 
-- [x] CI/CD 流水线 → 门禁脚本 `tools/checks/ci_gate.ps1` 为唯一判定源（8 项检查），
-      `.github/workflows/ci.yml` 仅调用之。含 FFmpeg 方案 B 的发布产物守卫。
+- [x] 安装包 / 部署脚本 → `tools/pack/package_release.ps1` + `docs/DEPLOYMENT.md`，
+      免安装自包含分发包，已通过启动冒烟测试。
+- [x] CI/CD 流水线 → 门禁脚本 `tools/checks/ci_gate.ps1` 为唯一判定源（**9 项检查**），
+      `.github/workflows/ci.yml` 仅调用之。含分发包许可与方案 B 守卫。
 - [x] 选定本项目原创代码许可 → **专有闭源**，© 2026 陈浪，保留所有权利，授权以双方
       另行签署的书面合同为准（`LICENSE` 已写入全文）。
 - [x] 核实 `opencv_videoio_ffmpeg4130_64.dll` 内 FFmpeg 的实际许可 → **LGPL-2.1-or-later，

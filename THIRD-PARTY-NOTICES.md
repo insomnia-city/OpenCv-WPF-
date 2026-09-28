@@ -11,10 +11,33 @@
 |---|---|---|---|
 | [OpenCvSharp4](https://github.com/shimat/opencvsharp) | 4.13.0.20260627 | Apache-2.0 | 视觉后端托管绑定 |
 | [OpenCvSharp4.runtime.win](https://github.com/shimat/opencvsharp) | 4.13.0.20260627 | Apache-2.0 | OpenCV x64 原生库（win-x64） |
+| [OpenCvSharp4.Windows](https://github.com/shimat/opencvsharp) | 4.13.0.20260627 | Apache-2.0 | **元包**，聚合下列三项，自身不含任何二进制 |
+| [OpenCvSharp4.WpfExtensions](https://github.com/shimat/opencvsharp) | 4.13.0.20260627 | Apache-2.0 | WPF 图像窗的 `Mat` ↔ `BitmapSource` 互操作（仅托管 DLL） |
+| [System.Drawing.Common](https://github.com/dotnet/runtime) | 10.0.9 | MIT | 上述 WpfExtensions 的传递依赖 |
 | [Nodify](https://github.com/oleg-shilo/nodify) | 7.3.0 | MIT | WPF 节点编辑器控件 |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | 8.4.2 | MIT | MVVM 基础（源生成器） |
 | [Dapper](https://github.com/StackExchange/Dapper) | 2.1.35 | Apache-2.0 | 存储层轻量 ORM |
 | [Microsoft.Data.Sqlite](https://github.com/dotnet/SQLite) | 9.0.0 | MIT | SQLite 驱动 |
+
+> 上述四项 OpenCvSharp 包的许可均以 `.nuspec` 的 license *expression* 声明为
+> `Apache-2.0`，与既有 `third-party/opencvsharp/LICENSE` 同一份 Apache-2.0 全文，
+> 故**不需新增许可正文**。`System.Drawing.Common` 为 MIT。
+
+### OpenCvSharp4.Windows / WpfExtensions 的放置约束（构建期硬性要求）
+
+`OpenCvSharp4.WpfExtensions` 仅提供 `net48` 与 `net8.0-windows7.0` 两套资产。
+**只有 `net*-windows` 目标框架才能取到正确资产**；若在 `net9.0` 这类不带 `-windows`
+的项目中引用，NuGet 会回退到 .NET Framework 资产并报：
+
+```
+NU1701: 已使用 .NETFramework ... 而不是项目目标框架 net9.0 还原包
+        OpenCvSharp4.WpfExtensions 4.13.0.20260627。此包可能与项目不完全兼容
+```
+
+即在 .NET 9 应用中加载 net48 编译产物，运行时可能 `TypeLoadException`。故这两个包
+**必须**声明在 `src/App`（`net9.0-windows`），**不得**放入 `net9.0` 的库项目。
+`Directory.Build.targets` 的 FFmpeg 排除不受影响：`OpenCvSharp4.Windows` 是纯元包
+（0 个二进制），`WpfExtensions` 亦无原生库，二者都不引入新的 FFmpeg 载体。
 
 ### OpenCV 本体 — Apache-2.0（**非 BSD**）
 

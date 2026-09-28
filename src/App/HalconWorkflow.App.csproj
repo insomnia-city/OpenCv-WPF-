@@ -12,6 +12,12 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Nodify" Version="7.3.0" />
+    <!-- WPF interop for the image window. Must live here rather than in a net9.0 project:
+         OpenCvSharp4.WpfExtensions only ships net48 and net8.0-windows7.0 assets, so a
+         non-windows TFM silently falls back to the .NET Framework build and raises NU1701.
+         This metapackage pulls OpenCvSharp4, OpenCvSharp4.runtime.win and
+         OpenCvSharp4.WpfExtensions at the matching 4.13.0.20260627 version. -->
+    <PackageReference Include="OpenCvSharp4.Windows" Version="4.13.0.20260627" />
   </ItemGroup>
 
   <ItemGroup>

@@ -161,7 +161,7 @@ dotnet test  HalconWorkflow.sln --nologo
 | # | 事项 | 状态 | 备注 |
 |---|---|---|---|
 | 1 | CI/CD 流水线 | **已完成** | 门禁脚本 `tools/checks/ci_gate.ps1`（**唯一判定源**，8 项检查：SDK 与 `global.json` 一致、restore、Release 构建 0 错误、全量测试、TRX 判定含测试数下限与视觉原生未跳过、App publish、**FFmpeg 方案 B 排除在发布产物中生效且 `OpenCvSharpExtern.dll` 未被误删**）+ `.github/workflows/ci.yml`（Windows x64 runner，仅调用该脚本，不重复实现判定逻辑；上传 TRX 与失败时的发布产物）。本机实测 421/421、8/8 通过；并已注入双重故障反向验证两个关键守卫会拦截并返回退出码 1 |
-| 2 | 安装包 / 部署脚本 | 待办 | 需产出可分发目录或安装包 + 部署说明；须一并附 OpenCvSharp/OpenCV 的许可与 NOTICE（见 §4） |
+| 2 | 安装包 / 部署脚本 | **已完成** | `tools/pack/package_release.ps1` 产出免安装分发包（自包含 win-x64，含 .NET 9 运行时，目标机零前置）：445 文件 / 206 MB，zip 86.7 MB。包内含 `LICENSE`、`THIRD-PARTY-NOTICES.md`、`third-party/` 全部许可正文（满足 Apache-2.0 §4(a)）、`docs/DEPLOYMENT.md`、`MANIFEST.txt`、`SHA256SUMS.txt`。`docs/DEPLOYMENT.md` 覆盖前置条件、解压部署、配置路径（`%LOCALAPPDATA%\HalconWorkflow`）、备份、卸载、能力边界与故障排查。**已做启动冒烟测试**：解压后 `HalconWorkflow.App.exe` 正常运行并加载 `OpenCvSharpExtern.DLL`。许可合规由 CI 门禁第 8 项按产物实际内容校验 |
 | 3 | 运维文档 | 待办 | 安装手册、故障排查、参数备份/恢复 |
 | 4 | 版本治理基建 | **基本完成** | 已建 `global.json`（锁 SDK 9.0.317 + `rollForward: latestFeature`）、`CHANGELOG.md`、`SECURITY.md`、`THIRD-PARTY-NOTICES.md`（11 项依赖许可已按 NuGet `.nuspec` 实际元数据逐条核验）、`third-party/` 许可正文目录（OpenCV/OpenCvSharp 的 Apache-2.0 全文、OpenCV `COPYRIGHT`、许可变更说明、FFmpeg LGPL 声明）。**`LICENSE` 已定为专有闭源许可**：© 2026 陈浪，保留所有权利，授权以双方另行签署的书面合同为准。**未完成**：发布 tag 策略 |
 | 5 | 人工可操作仿真演示件 | 待办 | 不依赖硬件；跑通 grab→threshold→measure→存图 |

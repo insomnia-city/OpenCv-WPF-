@@ -15,6 +15,9 @@
     6  publish  App publish, used by step 7
     7  ffmpeg   the option B FFmpeg exclusion actually holds in published output, and we
                 did not over-delete the OpenCV native we still depend on
+    8  package  the distributable itself: the license texts must travel inside it,
+                and option B must still hold for the self-contained layout, which
+                is where it once leaked 27 MB of FFmpeg into the shipped zip
 
   Output is deliberately ASCII-only: the file is stored as UTF-8 without BOM, and Windows
   PowerShell 5.1 mis-decodes non-ASCII in such a script. Runner shells here may be either
@@ -95,7 +98,7 @@ New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
 Start-Transcript -LiteralPath $logPath -Force | Out-Null
 
 # ---------------------------------------------------------------- 1  sdk
-Start-Step '1/7  SDK pinned by global.json'
+Start-Step '1/8  SDK pinned by global.json'
 $expectedSdk = [string](Get-Content -LiteralPath 'global.json' -Raw | ConvertFrom-Json).sdk.version
 $saved = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
@@ -109,7 +112,7 @@ if ($actualSdk.StartsWith($expectedSdk)) {
 }
 
 # ---------------------------------------------------------------- 2  restore
-Start-Step '2/7  restore'
+Start-Step '2/8  restore'
 $r = Invoke-Dotnet @('restore', 'HalconWorkflow.sln', '--nologo')
 if ($r.ExitCode -eq 0) {
     Add-Step 'restore' $true 'packages restored'
@@ -118,7 +121,7 @@ if ($r.ExitCode -eq 0) {
 }
 
 # ---------------------------------------------------------------- 3  build
-Start-Step ('3/7  build (' + $Configuration + ')')
+Start-Step ('3/8  build (' + $Configuration + ')')
 $r = Invoke-Dotnet @('build', 'HalconWorkflow.sln', '-c', $Configuration, '--no-restore', '--nologo')
 $buildOut = $r.Output
 $errorCount = ([regex]::Matches($buildOut, ': error ')).Count
@@ -131,7 +134,7 @@ if ($r.ExitCode -eq 0 -and $errorCount -eq 0) {
 }
 
 # ---------------------------------------------------------------- 4  test
-Start-Step '4/7  test'
+Start-Step '4/8  test'
 Remove-Item -LiteralPath $resultsDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $resultsDir -Force | Out-Null
 # No LogFileName here on purpose. A fixed name makes every test project write to the same
@@ -150,7 +153,7 @@ if ($trxFiles.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------- 5  trx verdict
-Start-Step '5/7  TRX verdict'
+Start-Step '5/8  TRX verdict'
 if ($trxFiles.Count -eq 0) {
     Add-Step 'trx' $false 'no TRX to read'
     Add-Step 'vision-native' $false 'no TRX to read'
@@ -235,8 +238,8 @@ if ($trxFiles.Count -eq 0) {
     }
 }
 
-# ---------------------------------------------------------------- 6/7  publish + ffmpeg guard
-Start-Step '6/7  publish App (license compliance guard)'
+# ---------------------------------------------------------------- 6/8  publish + ffmpeg guard
+Start-Step '6/8  publish App (license compliance guard)'
 Remove-Item -LiteralPath $publishDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $publishDir -Force | Out-Null
 $ffmpegOk = $false; $ffmpegDetail = 'not run'
@@ -254,7 +257,7 @@ if ($results | Where-Object { $_.Step -eq 'build' -and -not $_.Ok }) {
     }
 }
 
-Start-Step '7/7  FFmpeg option B holds in published output'
+Start-Step '7/8  FFmpeg option B holds in published output'
 $publishOk = [bool]($results | Where-Object { $_.Step -eq 'publish' -and $_.Ok })
 if (-not $publishOk) {
     $ffmpegOk = $false
@@ -273,6 +276,49 @@ if (-not $publishOk) {
         Add-Step 'ffmpeg' $false 'FFmpeg excluded as intended, but OpenCvSharpExtern.dll is also missing; the exclusion deleted more than it should'
     } else {
         Add-Step 'ffmpeg' $true ('FFmpeg excluded (' + $extern.Count + ' OpenCvSharpExtern.dll retained)')
+    }
+}
+
+# ---------------------------------------------------------------- 8/8  distribution package
+Start-Step '8/8  distributable package (Apache-2.0 4(a) + option B)'
+# The gate above only proves the framework-dependent publish is clean. A distributable is
+# built with a RID and a self-contained payload, which lays natives out differently, and
+# that is exactly where option B previously leaked. The license texts must also travel
+# inside the package, since no NuGet package carries any.
+$pkgScript = 'tools\pack\package_release.ps1'
+if (-not (Test-Path -LiteralPath $pkgScript)) {
+    Add-Step 'package' $false ('packaging script not found: ' + $pkgScript)
+} else {
+    $pkgWork = Join-Path $WorkDirectory 'dist'
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $pkgText = (& powershell -NoProfile -ExecutionPolicy Bypass -File $pkgScript -SkipZip -DistRoot $pkgWork 2>&1 | Out-String)
+    $pkgCode = $LASTEXITCODE
+    $ErrorActionPreference = $saved
+
+    if ($pkgCode -ne 0) {
+        Add-Step 'package' $false ('packaging failed, exit ' + $pkgCode + "`n" + (Get-Tail $pkgText))
+    } else {
+        $pkgDir = @(Get-ChildItem -LiteralPath $pkgWork -Directory -Filter 'HalconWorkflow-*' -ErrorAction SilentlyContinue)
+        if ($pkgDir.Count -eq 0) {
+            Add-Step 'package' $false 'packaging reported success but produced no package folder'
+        } else {
+            $pkgFiles = @(Get-ChildItem -LiteralPath $pkgDir[0].FullName -Recurse -File)
+            $pkgFfmpeg = @($pkgFiles | Where-Object { $_.Name -like 'opencv_videoio_ffmpeg*' })
+            $need = @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'third-party\opencv\LICENSE',
+                      'third-party\opencv\COPYRIGHT', 'third-party\opencvsharp\LICENSE',
+                      'third-party\ffmpeg\NOTICE.md', 'docs\DEPLOYMENT.md',
+                      'MANIFEST.txt', 'SHA256SUMS.txt')
+            $absent = @($need | Where-Object { -not (Test-Path -LiteralPath (Join-Path $pkgDir[0].FullName $_)) })
+
+            if ($pkgFfmpeg.Count -ne 0) {
+                Add-Step 'package' $false ('FFmpeg native inside the distributable (' + (($pkgFfmpeg | ForEach-Object { $_.Name }) -join ', ') + '); LGPL obligations would be live')
+            } elseif ($absent.Count -ne 0) {
+                Add-Step 'package' $false ('package is missing ' + ($absent -join ', '))
+            } else {
+                Add-Step 'package' $true ($pkgFiles.Count.ToString() + ' files, FFmpeg absent, all ' + $need.Count + ' license/manifest files present')
+            }
+        }
     }
 }
 
