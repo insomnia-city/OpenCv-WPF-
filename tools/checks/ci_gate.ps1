@@ -307,7 +307,9 @@ if (-not (Test-Path -LiteralPath $pkgScript)) {
             $pkgFfmpeg = @($pkgFiles | Where-Object { $_.Name -like 'opencv_videoio_ffmpeg*' })
             $need = @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'third-party\opencv\LICENSE',
                       'third-party\opencv\COPYRIGHT', 'third-party\opencvsharp\LICENSE',
-                      'third-party\ffmpeg\NOTICE.md', 'docs\DEPLOYMENT.md',
+                      'third-party\ffmpeg\NOTICE.md',
+                      'third-party\system.drawing.common\LICENSE.txt',
+                      'docs\DEPLOYMENT.md',
                       'MANIFEST.txt', 'SHA256SUMS.txt')
             $absent = @($need | Where-Object { -not (Test-Path -LiteralPath (Join-Path $pkgDir[0].FullName $_)) })
 

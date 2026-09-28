@@ -19,9 +19,9 @@
 | [Dapper](https://github.com/StackExchange/Dapper) | 2.1.35 | Apache-2.0 | 存储层轻量 ORM |
 | [Microsoft.Data.Sqlite](https://github.com/dotnet/SQLite) | 9.0.0 | MIT | SQLite 驱动 |
 
-> 上述四项 OpenCvSharp 包的许可均以 `.nuspec` 的 license *expression* 声明为
-> `Apache-2.0`，与既有 `third-party/opencvsharp/LICENSE` 同一份 Apache-2.0 全文，
-> 故**不需新增许可正文**。`System.Drawing.Common` 为 MIT。
+> 四项 OpenCvSharp 系列许可表达式均为 `Apache-2.0`，与 `third-party/opencvsharp/LICENSE` 同一份 Apache-2.0 全文，不另附正文。
+> `System.Drawing.Common` 为 MIT，许可正文逐字取自 NuGet 包内 `LICENSE.TXT`（SHA256 A89886665765362EB77E0F8E26602C924520041D1711B2EEDC136434FE4D01AB），
+> 存放于 `third-party/system.drawing.common/LICENSE.txt` 并随包分发，以满足 MIT「版权与许可声明须包含在软件所有副本中」的要求。
 
 ### OpenCvSharp4.Windows / WpfExtensions 的放置约束（构建期硬性要求）
 

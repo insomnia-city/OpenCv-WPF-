@@ -150,6 +150,7 @@ $requiredLicenses = @(
     'third-party\opencv\LICENSE_CHANGE_NOTICE.txt',
     'third-party\opencvsharp\LICENSE',
     'third-party\ffmpeg\NOTICE.md',
+    'third-party\system.drawing.common\LICENSE.txt',
     'THIRD-PARTY-NOTICES.md',
     'LICENSE'
 )
@@ -222,7 +223,9 @@ if ($SkipZip) {
     if (-not ($entries | Where-Object { $_.StartsWith($pkgName + '\') -or $_.StartsWith($pkgName + '/') })) {
         $bad.Add('zip has no single top-level ' + $pkgName + ' directory')
     }
-    foreach ($must in 'third-party\opencv\LICENSE', 'third-party\ffmpeg\NOTICE.md', 'docs\DEPLOYMENT.md', 'THIRD-PARTY-NOTICES.md') {
+    foreach ($must in 'third-party\opencv\LICENSE', 'third-party\ffmpeg\NOTICE.md',
+                     'third-party\system.drawing.common\LICENSE.txt',
+                     'docs\DEPLOYMENT.md', 'THIRD-PARTY-NOTICES.md') {
         $norm = $must -replace '/', '\'
         if (-not ($entries | Where-Object { $_.EndsWith($norm) })) { $bad.Add('zip missing ' + $must) }
     }

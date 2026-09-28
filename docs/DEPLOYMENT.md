@@ -46,10 +46,11 @@ HalconWorkflow-<version>-win-x64\
 ├─ plugins\                       插件放置目录（可为空）
 ├─ LICENSE                        本软件专有许可（© 2026 陈浪）
 ├─ THIRD-PARTY-NOTICES.md         第三方许可总表
-├─ third-party\                   第三方许可正文（勿删，见第 5 节）
-│  ├─ opencv\        Apache-2.0 全文、COPYRIGHT、许可变更说明
-│  ├─ opencvsharp\   Apache-2.0 全文
-│  └─ ffmpeg\        LGPL 结论与方案说明
+├─ third-party\                   第三方许可正文（8 个文件，4 个子目录）
+│  ├─ opencv\         Apache-2.0 全文、COPYRIGHT、变更说明、NOTICE
+│  ├─ opencvsharp\    Apache-2.0 全文、NOTICE
+│  ├─ system.drawing.common\  MIT 全文（System.Drawing.Common 传递依赖）
+│  └─ ffmpeg\         LGPL 方案 B 要约与说明
 ├─ docs\DEPLOYMENT.md             本文件
 ├─ MANIFEST.txt                   文件清单
 └─ SHA256SUMS.txt                 逐文件哈希
@@ -98,6 +99,8 @@ HalconWorkflow-<version>-win-x64\
 
 Apache-2.0 §4(a) 要求分发时随附许可副本。NuGet 包本身不含任何许可文件，
 因此包内 `third-party\` 目录是**唯一**满足该义务的载体，**不得删除或改名**。
+`System.Drawing.Common` 为 MIT，MIT 同样要求「版权与许可声明须包含在软件所有副本中」，
+故其正文 `third-party\system.drawing.common\LICENSE.txt` 也必须随包分发。
 
 **包内不含 `opencv_videoio_ffmpeg*.dll`，这是刻意为之。** 该 DLL 封装 FFmpeg
 （LGPL-2.1-or-later，非 GPL），本产品已采用**方案 B**：在构建与发布阶段将其排除，
