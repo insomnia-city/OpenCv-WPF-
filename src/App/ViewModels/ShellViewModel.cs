@@ -1182,6 +1182,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         if (!_running || _scheduler.State != SchedulerState.Paused) return;
         _scheduler.Step();
         PostDebugState();
+        RecordAudit(AuditActions.RunStep, _selectedNode?.Id);
     }
 
     /// <summary>Queues a rerun from the selected node behind the current cycle. · 从选中节点重跑，排于当前周期之后</summary>

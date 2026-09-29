@@ -34,8 +34,17 @@
   `env` 上下文没有该变量，路径解析为空而找不到任何文件，失败 run 的 TRX 拿不到。
   改为把门禁工作目录显式钉到 `${{ runner.temp }}`，上传与之对齐。
 - 同一上传步骤的 glob 原指向工作目录**根**（`\halcon-ci-gate\*.trx`），而门禁把 TRX
-  写在 `\halcon-ci-gate\results\` 子目录——根级 glob 静默匹配不到，artifact 一直为空。
-  已改为 `\halcon-ci-gate\results\*.trx`。
+   写在 `\halcon-ci-gate\results\` 子目录——根级 glob 静默匹配不到，artifact 一直为空。
+   已改为 `\halcon-ci-gate\results\*.trx`。
+
+### 修复（单步审计 RunStep 缺失）
+
+`ShellViewModel.StepOnce` 原先只调用 `GraphScheduler.Step()`，**没有**像断点
+（`SetBreakpoint`）/重跑（`RunRerun`）那样落 `RunStep` 审计——与 §5.7/ADR-027
+「断点 / 单步 / 重跑均落审计」的约定不符。该行被 App 测试 `StepFromBreakpoint_...` 
+断言，而本地机因共享持久库 `%LOCALAPPDATA%\HalconWorkflow\trace.db` 的残留行掩盖了
+缺失；CI runner 是全新环境（空库）从而每条 run 稳定失败。现于 `Step()` 成功后补写
+`RunStep` 审计记录（测试目标为选中节点，与 `RunRerun` 同型）。
 
 ---
 
