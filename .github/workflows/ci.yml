@@ -82,7 +82,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results-trx
-          path: ${{ runner.temp }}\halcon-ci-gate\*.trx
+          # The gate writes TRX under WorkDirectory\results, not the WorkDirectory root.
+          # A root-level glob silently matched nothing and the artifact never appeared.
+          # · 门禁把 TRX 写到 WorkDirectory\results 子目录,根级 glob 会静默匹配不到。
+          path: ${{ runner.temp }}\halcon-ci-gate\results\*.trx
           if-no-files-found: warn
           retention-days: 14
 
