@@ -68,6 +68,16 @@ were not delivered within 5s」就此偶发（本 test 文件的历史注释即�
 线性确定；生产路径不受影响（WPF Dispatcher SC 照常捕获）。验证：全量 App.Tests 115/115，
 `LiveDataFlowTests` 2 核亲和压测 10/10。
 
+### 修复（CI 2 vCPU 线程池饥饿，测试宿主抬升线程池下限）
+
+SC 修复消除了排序竞态后，`LiveDataFlowTests` 又在另一断言上复发：「run did not finish
+within 5s」——3 节点幻影图标称 20–50 ms 的运行，在 xunit 并行集合 + 2 vCPU 的 CI 负载下被
+饿过 5 s（调度器的后台消费循环是单 `Task.Run` 工作线程）。现做两层加固：(1) App.Tests 程序集
+`[ModuleInitializer]` 把线程池最小工作者/IO 线程抬至 `max(16, 4×vCPU)`，令 `Task.Run` 与
+续延立即获得工作者，不再受节流式缓慢注入影响（仅影响测试宿主进程，vstest 每程序集独立）;
+(2) 该测试的运行结束/节点完成等待预算由 5 s 放宽到 15 s——对 3 节点幻影 run 仍是苛刻下界，
+但给 CI 延迟噪声留了余量。验证：全量 App.Tests 115/115，`LiveDataFlowTests` 2 核亲和压测 10/10。
+
 ---
 
 ## 分发包（2026-09-28）

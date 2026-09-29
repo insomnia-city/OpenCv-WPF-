@@ -133,7 +133,7 @@ public sealed class LiveDataFlowTests : IDisposable
     /// OnRunCompleted 中对成功与故障都会写 "Run finished: ..."，且每个测试都新建 shell，
     /// 故出现一条即代表恰好完成了一次运行。
     /// </summary>
-    private static Task<bool> RunFinishedAsync(ShellViewModel shell, int timeoutMs = 5000) =>
+    private static Task<bool> RunFinishedAsync(ShellViewModel shell, int timeoutMs = 15000) =>
         WaitUntilAsync(
             () => shell.Log.Snapshot().Any(e => e.Message.StartsWith("Run finished:", StringComparison.Ordinal)),
             timeoutMs);
@@ -154,7 +154,7 @@ public sealed class LiveDataFlowTests : IDisposable
                 // · 每个节点都要满足，而非任意一个：条目只对自己的 id 计数
                 return nodeIds.All(id => messages.Any(m => m.Contains($" {id} done ", StringComparison.Ordinal)));
             },
-            5000);
+            15000);
 
     /// <summary>
     /// Asserts completion-event delivery and, on timeout, dumps the log so the next CI failure is
