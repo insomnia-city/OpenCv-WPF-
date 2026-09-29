@@ -212,6 +212,31 @@ if ($trxFiles.Count -eq 0) {
     }
     Write-Host ('      {0,-46} {1,7} {2,7} {3,8}' -f 'TOTAL', $passed, $failed, $skipped)
 
+    if ($failed -ne 0) {
+        # A failed run must name its failures in the gate output itself, otherwise the
+        # failing tests are unreachable from the step summary and only survive in the TRX,
+        # which takes an authenticated download to inspect.
+        # · 失败必须点名:否则失败测试只存在于 TRX 里,而 TRX 需登录下载才能查看。
+        Write-Host ''
+        foreach ($file in $trxFiles) {
+            $xml = New-Object System.Xml.XmlDocument
+            $xml.Load($file.FullName)
+            $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+            $ns.AddNamespace('t', 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010')
+            foreach ($n in $xml.SelectNodes('//t:UnitTestResult', $ns)) {
+                if ($n.GetAttribute('outcome') -ne 'Failed') { continue }
+                $name = $n.GetAttribute('testName')
+                $err = ''
+                $mt = $n.SelectSingleNode('t:Output/t:ErrorInfo/t:Message', $ns)
+                if ($null -ne $mt) { $err = ($mt.InnerText -replace '\s+', ' ').Trim() }
+                if ($err.Length -gt 200) { $err = $err.Substring(0, 200) + '...' }
+                Write-Host ('      FAILED  ' + $name)
+                if ($err.Length -gt 0) { Write-Host ('         ' + $err) }
+            }
+        }
+        Write-Host ''
+    }
+
     $total = $passed + $failed + $skipped + $other
     $unattributed = 0
     if ($perAsm.ContainsKey('<unknown>')) { $unattributed = $perAsm['<unknown>'].Passed + $perAsm['<unknown>'].Failed + $perAsm['<unknown>'].Skipped + $perAsm['<unknown>'].Other }
