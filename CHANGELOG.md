@@ -46,6 +46,16 @@
 缺失；CI runner 是全新环境（空库）从而每条 run 稳定失败。现于 `Step()` 成功后补写
 `RunStep` 审计记录（测试目标为选中节点，与 `RunRerun` 同型）。
 
+### 改进（测试数据根隔离，杜绝本地过 / CI 红）
+
+`BuildDataRuntime` 原先把所有 `ShellViewModel`（生产与测试）都钉在同一个用户级持久目录
+`%LOCALAPPDATA%\HalconWorkflow`（`trace.db` + `devices.json`），且永不清理——这正是上一条
+修复被本地残留行掩盖到只剩 CI 能暴露的原因，也让 xunit 跨类并行时各 shell 争抢同一 SQLite
+文件。现将注入缝从「设备目录路径」收窄为「数据根」：生产公开构造用默认目录（行为不变），
+内部构造接受隔离的临时数据根；11 处测试调用点统一经新的 `TestShell` 工厂，每个 shell 独占
+一个 `%TEMP%\HalconWorkflow.Tests\<guid>` 目录。验证：删净用户目录后全量 App.Tests 通过，
+且该目录全程保持不被创建。
+
 ---
 
 ## 分发包（2026-09-28）

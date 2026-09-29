@@ -17,7 +17,7 @@ public sealed class UnsavedChangesGuardTests : IDisposable
 
     private ShellViewModel CreateShell(IDialogService dialogs)
     {
-        var shell = new ShellViewModel(new LocalizationService(), dialogs);
+        var shell = TestShell.Create(new LocalizationService(), dialogs);
         _shells.Add(shell);
         return shell;
     }

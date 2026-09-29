@@ -26,7 +26,7 @@ public class ShellViewModelTests : IDisposable
 
     private ShellViewModel CreateShell()
     {
-        var shell = new ShellViewModel(new LocalizationService(), new NoopDialogService());
+        var shell = TestShell.Create(new LocalizationService(), new NoopDialogService());
         _shells.Add(shell);
         return shell;
     }

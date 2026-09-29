@@ -70,7 +70,7 @@ public sealed class RuntimeCapabilitiesTests
     [Fact]
     public async Task Shell_Startup_LogsCapabilityLinesForBothSubsystems()
     {
-        var shell = new ShellViewModel(new LocalizationService(), new NoopDialogService());
+        var shell = TestShell.Create(new LocalizationService(), new NoopDialogService());
         try
         {
             Assert.Equal(2, shell.Capabilities.Count);

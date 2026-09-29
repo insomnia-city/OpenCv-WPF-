@@ -129,7 +129,7 @@ public sealed class RecipePersistenceTests : IDisposable
         var graphPath = Path.Combine(dir, "flow.graph.json");
         var recipePath = Path.Combine(dir, "flow.recipe.json");
         var dialogs = new FileDialogService { OpenGraphPath = graphPath, SaveGraphPath = graphPath };
-        var shell = new ShellViewModel(new LocalizationService(), dialogs);
+        var shell = TestShell.Create(new LocalizationService(), dialogs);
         _shells.Add(shell);
         try
         {

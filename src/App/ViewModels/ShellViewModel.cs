@@ -44,13 +44,15 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     internal const string GraphFilter = "Halcon Graph (*.graph.json)|*.graph.json|All files (*.*)|*.*";
 
     /// <summary>
-    /// Device catalog location shared with the trace database (§7.1 stage-21): user-level,
-    /// survives restarts, and is git-ignored by the environment. · 设备目录存储位置,与追溯库同目录
-    /// (§7.1 阶段21)：用户级、跨重启保留,环境中不入库。
+    /// Default data root shared between the device catalog and the trace database (§7.1 stage-21):
+    /// user-level, survives restarts, and is git-ignored by the environment. Tests inject their own
+    /// temp data root so local and CI runs never touch the user's directory.
+    /// · 设备目录与追溯库共用的默认数据根(§7.1 阶段21)：用户级、跨重启保留,环境中不入库。
+    ///   测试注入独立的临时数据根,本地与 CI 运行都不触碰用户目录。
     /// </summary>
-    internal static string DevicesFilePath { get; } = Path.Combine(
+    private static string DefaultDataRoot() => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "HalconWorkflow", "devices.json");
+        "HalconWorkflow");
 
     private readonly LocalizationService _loc;
     private readonly IDialogService _dialogs;
@@ -299,17 +301,18 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     }
 
     public ShellViewModel(LocalizationService loc, IDialogService dialogs)
-        : this(loc, dialogs, DevicesFilePath)
+        : this(loc, dialogs, DefaultDataRoot())
     {
     }
 
     /// <summary>
-    /// Internal: injects the device-catalog path so tests isolate catalog state to a temp dir.
-    /// · 内部：注入设备目录路径,测试可将目录状态隔离到临时目录。
+    /// Internal: injects an isolated data root (trace.db + devices.json) so tests never touch
+    /// the user's %LOCALAPPDATA%\HalconWorkflow directory. · 内部：注入隔离的数据根
+    /// (trace.db + devices.json),测试不触碰用户 %LOCALAPPDATA%\HalconWorkflow 目录。
     /// </summary>
-    internal ShellViewModel(LocalizationService loc, IDialogService dialogs, string devicesPath)
+    internal ShellViewModel(LocalizationService loc, IDialogService dialogs, string dataRoot)
     {
-        _devicesPath = devicesPath;
+        _devicesPath = Path.Combine(dataRoot, "devices.json");
         _loc = loc;
         _dialogs = dialogs;
         _ui = SynchronizationContext.Current;
@@ -335,7 +338,7 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
         _scheduler.Services[typeof(ICommRuntime)] = _comm;
         _motion = BuildMotionRuntime();
         _scheduler.Services[typeof(IMotionRuntime)] = _motion;
-        (_data, _stats, _images, _preview, _audit) = BuildDataRuntime();
+        (_data, _stats, _images, _preview, _audit) = BuildDataRuntime(dataRoot);
         _scheduler.Services[typeof(IDataRuntime)] = _data;
         _scheduler.Services[typeof(IStatsService)] = _stats;
         _scheduler.Services[typeof(IImageArchive)] = _images;
@@ -512,10 +515,9 @@ public sealed partial class ShellViewModel : ObservableObject, IAsyncDisposable
     ///   CSV 导出器(§8,阶段8)，外加共享该数据源的阶段9 统计服务、文件存图归档与预览环。
     ///   图按名引用 "trace"，保持提供商无关。
     /// </summary>
-    private static (DataRuntime Runtime, StatsService Stats, ImageArchiveStore Images, PreviewRing Preview, SqlAuditService Audit) BuildDataRuntime()
+    private static (DataRuntime Runtime, StatsService Stats, ImageArchiveStore Images, PreviewRing Preview, SqlAuditService Audit) BuildDataRuntime(string dataRoot)
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HalconWorkflow");
+        var dir = dataRoot;
         Directory.CreateDirectory(dir);
         var config = new DbConfig("trace", DbProviderKind.Sqlite,
             $"Data Source={Path.Combine(dir, "trace.db")};Pooling=False");

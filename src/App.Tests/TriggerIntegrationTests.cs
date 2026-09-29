@@ -20,7 +20,7 @@ public sealed class TriggerIntegrationTests : IDisposable
 
     private ShellViewModel CreateShell()
     {
-        var shell = new ShellViewModel(new LocalizationService(), _dialog);
+        var shell = TestShell.Create(new LocalizationService(), _dialog);
         _shells.Add(shell);
         return shell;
     }

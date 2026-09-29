@@ -26,7 +26,7 @@ public sealed class Stage11GateTests : IDisposable
 
     private ShellViewModel CreateShell(IDialogService? dialogs = null)
     {
-        var shell = new ShellViewModel(new LocalizationService(), dialogs ?? new StubDialogService());
+        var shell = TestShell.Create(new LocalizationService(), dialogs ?? new StubDialogService());
         _shells.Add(shell);
         return shell;
     }

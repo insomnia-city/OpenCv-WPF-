@@ -55,7 +55,7 @@ public sealed class MigrationLoadTests : IDisposable
 
     private ShellViewModel CreateShell(QueueDialogService dialogs)
     {
-        var shell = new ShellViewModel(new LocalizationService(), dialogs);
+        var shell = TestShell.Create(new LocalizationService(), dialogs);
         _shells.Add(shell);
         return shell;
     }

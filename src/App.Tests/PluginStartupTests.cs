@@ -15,7 +15,7 @@ public sealed class PluginStartupTests
     [Fact]
     public async Task Shell_Startup_LoadsExternalPluginContract()
     {
-        var shell = new ShellViewModel(new LocalizationService(), new NoopDialogService());
+        var shell = TestShell.Create(new LocalizationService(), new NoopDialogService());
         try
         {
             Assert.NotNull(shell.Plugins);
