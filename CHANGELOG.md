@@ -56,6 +56,18 @@
 一个 `%TEMP%\HalconWorkflow.Tests\<guid>` 目录。验证：删净用户目录后全量 App.Tests 通过，
 且该目录全程保持不被创建。
 
+### 修复（测试壳层的环境 SC 捕获，杜绝实况数据测试偶发超时）
+
+`ShellViewModel` 构造时捕获 `SynchronizationContext.Current` 作为 `_ui`，其 `Post` 原为
+「有 `_ui` 则排队异步投递、无则内联」。xunit v2 对 `Task` 型测试在线程上安装了
+`AsyncTestSyncContext`，因此在 **测试体内** 构造的壳会把该 SC 捕获为 `_ui`，使节点
+`Completed`/`RunCompleted` 事件全部走线程池排队的**无序**异步投递——CI 2 vCPU 高负载下
+运行结束日志可先于个别节点的 `done` 行出现，`LiveDataFlowTests` 的「node completion events
+were not delivered within 5s」就此偶发（本 test 文件的历史注释即该竞态的老账）。现在
+`TestShell` 工厂在构造期间临时清空环境 SC，使测试壳 `_ui == null`、`Post` 内联、事件顺序
+线性确定；生产路径不受影响（WPF Dispatcher SC 照常捕获）。验证：全量 App.Tests 115/115，
+`LiveDataFlowTests` 2 核亲和压测 10/10。
+
 ---
 
 ## 分发包（2026-09-28）
