@@ -1,6 +1,7 @@
 using HalconWorkflow.App.Services;
 using HalconWorkflow.App.ViewModels;
 using Xunit;
+using Xunit.Sdk;
 
 namespace HalconWorkflow.App.Tests;
 
@@ -80,7 +81,7 @@ public sealed class LiveDataFlowTests : IDisposable
         // SynchronizationContext 转发，投递可能晚于 RunCompleted。只等「运行结束」就会在环尚未
         // 写入时断言（高负载下表现为对空集合的 Assert.Contains）。等各节点自身的完成条目既单调又
         // 与投递对齐。
-        Assert.True(await NodesCompletedAsync(shell, start.Id, grab.Id, thr.Id), "node completion events were not delivered within 5s");
+        await AssertNodesCompletedAsync(shell, start.Id, grab.Id, thr.Id);
 
         Assert.Contains(grab.Id, shell.Preview.Nodes);
         Assert.Contains(thr.Id, shell.Preview.Nodes);
@@ -115,7 +116,7 @@ public sealed class LiveDataFlowTests : IDisposable
         // written by the node's Completed event, so it also has to wait for delivery.
         // · 依次等待单调信号，同上：端口标注由节点 Completed 事件写入，故同样需等其送达。
         Assert.True(await RunFinishedAsync(shell), "run did not finish within 5s");
-        Assert.True(await NodesCompletedAsync(shell, start.Id, grab.Id), "node completion events were not delivered within 5s");
+        await AssertNodesCompletedAsync(shell, start.Id, grab.Id);
 
         var caption = grab.Outputs.Single(p => p.Name == "image").ValueText;
         Assert.NotEqual("", caption);
@@ -154,6 +155,26 @@ public sealed class LiveDataFlowTests : IDisposable
                 return nodeIds.All(id => messages.Any(m => m.Contains($" {id} done ", StringComparison.Ordinal)));
             },
             5000);
+
+    /// <summary>
+    /// Asserts completion-event delivery and, on timeout, dumps the log so the next CI failure is
+    /// self-explanatory (which node missed its done, whether it faulted, what actually arrived).
+    /// · 断言完成事件的投递;超时时导出日志,使下一次 CI 失败自解释(哪个节点缺 done、是否 fail、实际到了什么)。
+    /// </summary>
+    private static async Task AssertNodesCompletedAsync(ShellViewModel shell, params string[] nodeIds)
+    {
+        if (await NodesCompletedAsync(shell, nodeIds)) return;
+        var messages = shell.Log.Snapshot().Select(e => e.Message).ToArray();
+        var missing = nodeIds
+            .Where(id => !messages.Any(m => m.Contains($" {id} done ", StringComparison.Ordinal)))
+            .ToArray();
+        string perNode = string.Join("\n", missing.Select(id =>
+            $"{id}: {string.Join(" | ", messages.Where(m => m.Contains(id, StringComparison.Ordinal)).Take(5))}"));
+        throw new XunitException(
+            $"node completion events were not delivered within 5s; missing done for [{string.Join(",", missing)}]\n" +
+            $"per-node lines:\n{perNode}\n" +
+            $"log tail:\n{string.Join("\n", messages.TakeLast(12))}");
+    }
 
     private static async Task<bool> WaitUntilAsync(Func<bool> condition, int timeoutMs = 5000)
     {
