@@ -33,6 +33,9 @@
 - `.github/workflows/ci.yml` 的 `upload-artifact` 原先引用 `env.TEMP`——action 的
   `env` 上下文没有该变量，路径解析为空而找不到任何文件，失败 run 的 TRX 拿不到。
   改为把门禁工作目录显式钉到 `${{ runner.temp }}`，上传与之对齐。
+- 同一上传步骤的 glob 原指向工作目录**根**（`\halcon-ci-gate\*.trx`），而门禁把 TRX
+  写在 `\halcon-ci-gate\results\` 子目录——根级 glob 静默匹配不到，artifact 一直为空。
+  已改为 `\halcon-ci-gate\results\*.trx`。
 
 ---
 
