@@ -188,15 +188,18 @@ public sealed class GraphModel
 
     private bool CreatesCycle(IPort from, IPort to)
     {
-        // Only exec links define ordering; build adjacency including the proposed edge. /* 仅控制流连线定义顺序;构建含拟加边的邻接表 */
+        // Exec AND data links define ordering: a data edge must not close a feedback cycle
+        // either, otherwise link-seeded consumers could depend on their own output (§5.4).
+        // · 控制流与数据连线都定义顺序：数据边同样不得闭合反馈环，否则按连线播种的消费者
+        //   可能依赖自身输出(§5.4)
         var adj = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         foreach (var n in _nodes.Values) adj[n.Id] = [];
 
         foreach (var l in _links)
-            if (l.From.Kind == PortKind.Exec)
+            if (l.From.Kind is PortKind.Exec or PortKind.Data)
                 adj[l.From.Owner.Id].Add(l.To.Owner.Id);
 
-        if (from.Kind == PortKind.Exec && to.Kind == PortKind.Exec)
+        if (from.Kind is PortKind.Exec or PortKind.Data && to.Kind is PortKind.Exec or PortKind.Data)
             adj[from.Owner.Id].Add(to.Owner.Id);
 
         return GraphAlgorithms.HasCycle(adj);

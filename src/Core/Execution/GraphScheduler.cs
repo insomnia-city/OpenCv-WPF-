@@ -481,6 +481,8 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
         string? error = null;
         using var scope = new Scope();
         var ctx = new ExecutionContext(Signal.Create(TriggerSource.Manual), scope, new NullEventBus(), Services);
+        var inputLinks = BuildInputLinks(graph);
+        var latestOutputs = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal);
         // Run ancestors first, then the cone in topological order filtered to cone members.
         // * 先运行祖先，再按拓扑序运行锥成员 */
         foreach (var gn in graph.TopologicalOrder.Where(n => cone.Contains(n.Id)))
@@ -496,10 +498,12 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
             try
             {
                 NodeExecuted?.Invoke(new NodeExecutionEvent(gn.Id, Signal.Create(TriggerSource.Manual), NodeExecutionPhase.Started, 0));
+                SeedInputs(ctx, gn.Node, inputLinks, latestOutputs);
                 await gn.Node.ExecuteAsync(ctx, ct).ConfigureAwait(false);
                 sw.Stop();
                 success++;
                 var values = CaptureOutputValues(ctx, gn.Node);
+                if (values is not null) latestOutputs[gn.Id] = values;
                 _snapshotCache?.Capture(gn.Id, values);
                 evt = new NodeExecutionEvent(gn.Id, Signal.Create(TriggerSource.Manual), NodeExecutionPhase.Completed, sw.ElapsedMilliseconds, null, values);
                 // When the rerun is launched from a paused session, the cone also honors
@@ -546,6 +550,8 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
 
         using var scope = new Scope();
         var ctx = new ExecutionContext(signal, scope, new NullEventBus(), Services);
+        var inputLinks = BuildInputLinks(graph);
+        var latestOutputs = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.Ordinal);
 
         foreach (var gn in graph.TopologicalOrder)
         {
@@ -566,10 +572,12 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
             try
             {
                 NodeExecuted?.Invoke(new NodeExecutionEvent(gn.Id, signal, NodeExecutionPhase.Started, 0));
+                SeedInputs(ctx, gn.Node, inputLinks, latestOutputs);
                 await gn.Node.ExecuteAsync(ctx, ct).ConfigureAwait(false);
                 sw.Stop();
                 success++;
                 var values = CaptureOutputValues(ctx, gn.Node);
+                if (values is not null) latestOutputs[gn.Id] = values;
                 _snapshotCache?.Capture(gn.Id, values);
                 evt = new NodeExecutionEvent(gn.Id, signal, NodeExecutionPhase.Completed, sw.ElapsedMilliseconds, null, values);
             }
@@ -601,6 +609,51 @@ public sealed class GraphScheduler : IGraphScheduler, IAsyncDisposable
         var finished = DateTimeOffset.UtcNow;
         var ok = error is null;
         return new GraphRunResult(ok, signal, started, finished, ok ? null : error, success, faulted);
+    }
+
+    private static Dictionary<IPort, GraphLink> BuildInputLinks(GraphModel graph)
+    {
+        // Data inputs allow at most one source (enforced by Connect/Validate), so this is a
+        // port → link map. Exec inputs carry no data value and are never seeded here.
+        // · 数据输入端至多一条来源(Connect/Validate 已强制)，故为 端口→连线 映射；
+        //   控流输入不承载数据值，不在此播种。
+        var map = new Dictionary<IPort, GraphLink>();
+        foreach (var l in graph.Links)
+            if (l.To.Kind == PortKind.Data)
+                map[l.To] = l;
+        return map;
+    }
+
+    /// <summary>
+    /// Seeds every declared data input of the node from its single incoming link's upstream
+    /// snapshot — never from a stray same-name tag — and clears unlinked inputs to null so a
+    /// disconnected optional input cannot read another branch's value by accident. Parameter
+    /// passing thereby follows the links, not the flat tag names (§5.4). The seed is stored
+    /// under the input port's own name so node bodies keep reading via <c>ctx.GetData(name)</c>,
+    /// and the port's <see cref="IPort.Value"/> mirrors it for the canvas badges.
+    /// · 按入线给节点的每个声明数据输入播种上游快照——绝不读旁路同名 tag；未接线的输入清空，
+    ///   使断开的可选输入不会误读别的分支的值。参数传递从此跟随连线而非扁平 tag 名(§5.4)。
+    ///   播种以输入端口自身名字写入，节点体仍用 ctx.GetData(name) 读取，端口 Value 同步镜像供画布徽标显示。
+    /// </summary>
+    private static void SeedInputs(
+        IExecutionContext ctx,
+        INode node,
+        IReadOnlyDictionary<IPort, GraphLink> inputLinks,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, object?>> latestOutputs)
+    {
+        foreach (var p in node.Inputs)
+        {
+            if (p.Kind != PortKind.Data) continue;
+            object? value = null;
+            if (inputLinks.TryGetValue(p, out var link)
+                && latestOutputs.TryGetValue(link.From.Owner.Id, out var outs)
+                && outs.TryGetValue(link.From.Name, out var v))
+            {
+                value = v;
+            }
+            ctx.SetData(p.Name, value);
+            p.Value = value;
+        }
     }
 
     /// <summary>

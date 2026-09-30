@@ -221,6 +221,8 @@
 - `src/Core.Tests/RuntimeValueSnapshotTests.cs` — 4 项：快照仅含数据输出（exec 不捕获）、逐节点即时捕获不串扰（cam 快照无 Region）、端口 `Value` 回写（exec 恒 null）、Started/Faulted 事件无值
 - `src/App.Tests/` — 11 项：`RuntimeValueFormatterTests`（6：null 空串/数字/帧/测量/字节数组/长串截断）、`VisionPreviewEncoderTests`（3：Gray8 PNG 往返解码校验、多通道编码、null）、`LiveDataFlowTests`（2：真实 vision 图经壳层运行→徽标有值/exec 恒空/预览环含编码帧/看板预览实时跟进 + 运行后内核端口保留上轮值）
 - 全解决方案：**264 项单测全绿**（40 Core + 11 Runtime + 69 App + 20 Nodes.Flow + 28 Nodes.Vision + 11 Protocols + 9 Nodes.Comm + 13 MotionDrivers + 13 Nodes.Motion + 12 Storage + 8 Nodes.Data + 30 Native）
+- 连线驱动数据流（§5.4 补记）— **参数传递从此沿连线进行**而非扁平 tag 名：`GraphScheduler` 每节点执行前按唯一入线播种其数据输入（`BuildInputLinks` + `SeedInputs`，未接线的输入清空为 null、值同步写 `port.Value`），值取自 `latestOutputs` 上游快照；数据连线纳入 `TopologySort.Sort` 与 `GraphModel.CreatesCycle`（生产者先于消费者、数据反馈环 Connect/Validate 即拒绝）。异名断链与并行分支同名串扰两类基础缺陷由此根治，无需图迁移
+- 全解决方案更新：**Core 67 → 73、全量 421 → 427 项全绿**（`src/Core.Tests/LinkedDataFlowTests.cs` +6）；`LiveDataFlow`+`LinkedDataFlow` 2 核亲和压测三轮零失败
 - 冒烟：`HalconWorkflow.App.exe` 启动 6 秒存活（运行中节点端口显示实时值，看板结果预览实时出图）
 
 **阶段 14（真实 Halcon 适配器：部署接缝 + 解析管线，本机无 SDK 亦全可测）已落地**：

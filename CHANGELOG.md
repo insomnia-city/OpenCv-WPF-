@@ -78,6 +78,26 @@ within 5s」——3 节点幻影图标称 20–50 ms 的运行，在 xunit 并�
 (2) 该测试的运行结束/节点完成等待预算由 5 s 放宽到 15 s——对 3 节点幻影 run 仍是苛刻下界，
 但给 CI 延迟噪声留了余量。验证：全量 App.Tests 115/115，`LiveDataFlowTests` 2 核亲和压测 10/10。
 
+### 新增（连线驱动数据流：节点参数沿连线传递 · §5.4）
+
+上一版的 `ExecutionContext` 是**扁平 tag 表**（`GetData`/`SetData` 按 tag 名），各节点按自己的
+输入端口**名**从全局读值，而 `GraphLink` 只记 From/To——数据流并不真正跟随连线，两种基础缺陷被
+暴露：**异名断链**（上游输出端口名 ≠ 下游输入端口名时，连了线仍按名读不到值）与**同名串扰**
+（两条并行分支各自输出同名 tag 时，下游按名互读、交叉污染）。现改为**参数传递沿连线进行**：
+
+- **播种（A）** — `GraphScheduler` 在每个节点执行前调 `BuildInputLinks`（数据输入端口 → 唯一入线
+  映射）与 `SeedInputs`：按其入线的上游输出快照（`latestOutputs` 注册表，按
+  `nodeId → outputPortName → value` 记录每个节点完成时的快照）给该输入播种；**未接线的数据输入
+  清空为 null**（断开的可选输入不再凭 tag 名误读其他分支的值）；播种值同时回写输入 `port.Value`
+  供画布徽标镜像。节点体仍用 `ctx.GetData(name)` 读取，零改动。
+- **排序 / 环检（B）** — 数据连线纳入 `TopologySort.Sort`（生产者先于消费者，纯数据连线也能决定
+  先后）；`GraphModel.CreatesCycle` 将数据边一并计入，**数据反馈环在 Connect/Validate 即拒绝**。
+  无需任何图迁移（阶段 26 已定无存量图文件）。
+- 验证 — 新增 `src/Core.Tests/LinkedDataFlowTests.cs` **6 项**：异名端口连线送值、并行分支同名输出
+  不串扰、纯数据连线决定执行先后（消费者先插入亦先序正确）、未接线可选输入清空不读脏值、数据环
+  拒绝、播种值镜像到端口 `Value`。既有按名连线的图语义不变，**全量测试 421 → 427 项全绿**，
+  `LiveDataFlow`+`LinkedDataFlow` 2 核亲和压测三轮零失败。
+
 ---
 
 ## 分发包（2026-09-28）

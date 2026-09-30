@@ -37,13 +37,18 @@ internal static class GraphAlgorithms
 }
 
 /// <summary>
-/// Kahn's algorithm producing a topological order over exec links. /* Kahn 算法，基于控制流连线求拓扑序 */
+/// Kahn's algorithm producing a topological order over exec links and data links.
+/// Data links order the producer before every consumer so link-seeded values are
+/// always available when the consumer runs (§5.4). · Kahn 算法，基于控制流连线与
+/// 数据连线求拓扑序。数据连线保证生产者先于消费者执行，使按连线播种的值在消费者
+/// 运行时一定就绪(§5.4)。
 /// </summary>
 internal static class TopologySort
 {
     /// <summary>
-    /// Sorts nodes by exec-link ordering; nodes not reachable by exec edges are appended
-    /// in insertion order. Any cycle is reported via <paramref name="cycleNodes"/>. /* 按控制流连线排序;不参与执行的节点按插入序追加;成环节点写入 cycleNodes */
+    /// Sorts nodes by exec/data-link ordering; nodes not reachable by any edge are appended
+    /// in insertion order. Any cycle is reported via <paramref name="cycleNodes"/>. 
+    /// · 按控制流/数据连线排序;不参与排序的节点按插入序追加;成环节点写入 cycleNodes
     /// </summary>
     public static List<GraphNode> Sort(
         IEnumerable<GraphNode> nodes,
@@ -60,7 +65,9 @@ internal static class TopologySort
 
         foreach (var l in links)
         {
-            if (l.From.Kind != PortKind.Exec) continue;
+            // Exec links define the run order; data links additionally pin producers before
+            // consumers. · 控制流连线定义运行顺序;数据连线额外把生产者固定在消费者之前
+            if (l.From.Kind is not (PortKind.Exec or PortKind.Data)) continue;
             if (!index.TryGetValue(l.From.Owner.Id, out var u)) continue;
             if (!index.TryGetValue(l.To.Owner.Id, out var v)) continue;
             adj[u].Add(v);
